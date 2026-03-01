@@ -1,0 +1,33 @@
+
+> bjerke-service-app@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3000
+   - Network:      http://10.5.0.2:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.7s
+ ○ Compiling / ...
+ ✓ Compiled / in 1592ms (799 modules)
+ GET /login 200 in 2314ms
+ GET / 307 in 2005ms
+ GET /login 200 in 86ms
+ ○ Compiling /api/auth/[...nextauth] ...
+ ✓ Compiled /api/auth/[...nextauth] in 761ms (804 modules)
+ ✓ Compiled /dashboard in 474ms (808 modules)
+ GET /api/auth/csrf 200 in 2216ms
+ GET /dashboard 200 in 784ms
+ POST /login 303 in 1842ms
+ POST /api/auth/callback/credentials 302 in 388ms
+ GET /api/auth/csrf 200 in 27ms
+ GET /api/auth/csrf 200 in 27ms
+ POST /api/auth/callback/credentials 302 in 331ms
+ ○ Compiling /admin/users ...
+ ✓ Compiled /admin/users in 951ms (812 modules)
+ GET /dashboard 200 in 1409ms
+ GET /admin/users 200 in 1429ms
+ GET /admin/users 200 in 238ms
+ GET /dashboard 200 in 40ms
+[?25h

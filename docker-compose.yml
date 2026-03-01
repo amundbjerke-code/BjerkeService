@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bjerke-service-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bjerke_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - bjerke_service_db:/var/lib/postgresql/data
+
+volumes:
+  bjerke_service_db:
+
+
+
