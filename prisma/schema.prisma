@@ -12,6 +12,11 @@ enum Role {
   EMPLOYEE
 }
 
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id           String    @id @default(cuid())
   name         String
@@ -74,6 +79,26 @@ model AuditLog {
   @@index([action])
   @@index([entityType])
   @@index([createdAt])
+}
+
+model Customer {
+  id        String         @id @default(cuid())
+  navn      String
+  orgnr     String?
+  epost     String
+  telefon   String
+  adresse   String
+  postnr    String
+  poststed  String
+  notater   String?
+  status    CustomerStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([status])
+  @@index([navn])
+  @@index([telefon])
+  @@index([epost])
 }
 
 

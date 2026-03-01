@@ -37,14 +37,15 @@ function navClassName(active: boolean, compact = false): string {
 
 export function AppNav({ role }: { role: UserRole }) {
   const pathname = usePathname();
-  const navItems = role === "ADMIN" ? [...baseItems, { href: "/admin/users", label: "Brukere", shortLabel: "Admin" }] : baseItems;
+  const desktopItems = role === "ADMIN" ? [...baseItems, { href: "/admin/users", label: "Brukere", shortLabel: "Admin" }] : baseItems;
+  const mobileItems = baseItems;
 
   return (
     <>
       <aside className="hidden md:block">
         <nav className="brand-card sticky top-24 p-3" aria-label="Hovednavigasjon">
           <ul className="space-y-1">
-            {navItems.map((item) => {
+            {desktopItems.map((item) => {
               const active = isActivePath(pathname, item.href);
               return (
                 <li key={item.href}>
@@ -64,9 +65,9 @@ export function AppNav({ role }: { role: UserRole }) {
       >
         <div
           className="mx-auto grid w-full max-w-screen-sm"
-          style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${mobileItems.length}, minmax(0, 1fr))` }}
         >
-          {navItems.map((item) => {
+          {mobileItems.map((item) => {
             const active = isActivePath(pathname, item.href);
             return (
               <Link key={item.href} href={item.href} className={navClassName(active, true)}>
