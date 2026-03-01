@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-3 status
+## Bolge 1-4 status
 
 Ferdig i denne leveransen:
 
@@ -11,29 +11,31 @@ Ferdig i denne leveransen:
 - Roller: `ADMIN` og `EMPLOYEE`
 - Beskyttede sider via server-side guards
 - Toppmeny + sidenavigasjon (desktop) + bunnnavigasjon (mobil)
-- Startsider:
-  - `/dashboard` (tom forelopig)
-  - `/kunder` (Bolge 2 implementert)
-  - `/prosjekter` (Bolge 3 implementert)
-  - `/sjekklister` (placeholder)
-  - `/timer` (placeholder)
-  - `/rapport` (placeholder)
-- Kunder:
+- Kunder (Bolge 2):
   - CRUD (opprett, les, rediger, deaktiver via status)
-  - Hurtigsok + filtrering (navn/telefon/e-post + status)
+  - Hurtigsok + filtrering
   - Kundedetaljer med mobil-lenker for ring og e-post
   - Prosjektoversikt per kunde
-- Prosjekter:
-  - CRUD (opprett, les, rediger, slett)
+- Prosjekter (Bolge 3):
+  - CRUD
   - Statusfilter i prosjektliste
-  - Billingtype (`TIME` / `FASTPRIS`) med felter for fastpris/timepris eks mva
-  - Prosjektdetaljer med seksjoner:
-    - Oversikt
-    - Sjekklister (placeholder til Bolge 4)
-    - Timer (placeholder til Bolge 5)
-    - Dokumenter/Bilder (placeholder)
-- Admin-side for brukeropprettelse: `/admin/users`
-- Database med Prisma migrasjoner + seed for admin-bruker
+  - Billingtype (`TIME` / `FASTPRIS`)
+  - Prosjektdetaljer med sections
+- Sjekklister (Bolge 4):
+  - Maler (`ChecklistTemplate`) administrert av admin
+  - Opprett prosjekt-sjekkliste fra mal eller scratch
+  - Punkt-svar: `JA` / `NEI` / `IKKE_RELEVANT`
+  - Kommentar per punkt
+  - Bildevedlegg per punkt (flere bilder)
+  - Autosave + debounce + local draft for refresh-sikkerhet
+
+## Tilgangsvalg (Bolge 4)
+
+Prosjekt- og sjekklistetilgang er satt til default policy:
+
+- Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan se alle prosjekter og sjekklister.
+
+Dette er valgt fordi prosjekt-eierskap ikke er modellert enna.
 
 ## Teknologistack
 
@@ -44,7 +46,7 @@ Ferdig i denne leveransen:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-3)
+## Datamodell (Bolge 1-4)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -53,28 +55,52 @@ Kjernetabeller:
 - `User` (inkludert `role`)
 - `Account`, `Session`, `VerificationToken` (Auth.js)
 - `AuditLog`
-- `Customer` (med `status`: `ACTIVE`/`INACTIVE`)
+- `Customer`
 - `Project`
-  - `status`: `PLANLAGT` / `PAGAR` / `FERDIG` / `FAKTURERT`
-  - `billingType`: `TIME` / `FASTPRIS`
+- `ChecklistTemplate`
+- `ChecklistTemplateItem`
+- `ProjectChecklist`
+- `ProjectChecklistItem`
+- `ChecklistItemAttachment`
 
 ## API-endepunkter
 
 Kunder:
 
-- `GET /api/customers` - liste kunder med sok/filter
-- `POST /api/customers` - opprett kunde
-- `GET /api/customers/:customerId` - hent kunde med prosjekter
-- `PATCH /api/customers/:customerId` - oppdater kunde
-- `DELETE /api/customers/:customerId` - deaktiver kunde (soft delete via status)
+- `GET /api/customers`
+- `POST /api/customers`
+- `GET /api/customers/:customerId`
+- `PATCH /api/customers/:customerId`
+- `DELETE /api/customers/:customerId`
 
 Prosjekter:
 
-- `GET /api/projects` - liste prosjekter med sok/filter
-- `POST /api/projects` - opprett prosjekt
-- `GET /api/projects/:projectId` - hent prosjekt
-- `PATCH /api/projects/:projectId` - oppdater prosjekt
-- `DELETE /api/projects/:projectId` - slett prosjekt
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/:projectId`
+- `PATCH /api/projects/:projectId`
+- `DELETE /api/projects/:projectId`
+
+Sjekklister:
+
+- `GET /api/checklist-templates`
+- `POST /api/checklist-templates` (admin)
+- `GET /api/checklist-templates/:templateId`
+- `PATCH /api/checklist-templates/:templateId` (admin)
+- `DELETE /api/checklist-templates/:templateId` (admin)
+- `GET /api/projects/:projectId/checklists`
+- `POST /api/projects/:projectId/checklists`
+- `GET /api/project-checklists/:checklistId`
+- `PATCH /api/project-checklists/:checklistId/items/:itemId`
+- `POST /api/project-checklists/items/:itemId/attachments`
+
+## Vedleggslagring
+
+Bildevedlegg lagres lokalt under:
+
+- `public/uploads/checklist-attachments`
+
+Databasen lagrer filreferanse i `ChecklistItemAttachment.filUrl`.
 
 ## Miljovariabler
 

@@ -1,5 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import {
+  createProjectChecklistFromScratchAction,
+  createProjectChecklistFromTemplateAction
+} from "@/app/actions/checklist-actions";
 import { deleteProjectAction, updateProjectAction } from "@/app/actions/project-actions";
 import { db } from "@/lib/db";
 import { getProjectBillingTypeLabel, getProjectStatusLabel, projectBillingTypeOptions, projectStatusOptions } from "@/lib/project-meta";
@@ -41,7 +46,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const error = toSingleValue(resolvedSearchParams.error);
   const success = getSuccessMessage(toSingleValue(resolvedSearchParams.success));
 
-  const [project, customers] = await Promise.all([
+  const [project, customers, templates] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
       include: {
@@ -53,6 +58,23 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             postnr: true,
             poststed: true
           }
+        },
+        checklists: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            createdBy: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            items: {
+              select: {
+                id: true,
+                svar: true
+              }
+            }
+          }
         }
       }
     }),
@@ -62,6 +84,15 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
       select: {
         id: true,
         navn: true
+      }
+    }),
+    db.checklistTemplate.findMany({
+      orderBy: [{ kategori: "asc" }, { navn: "asc" }],
+      include: {
+        items: {
+          orderBy: { rekkefolge: "asc" },
+          select: { id: true }
+        }
       }
     })
   ]);
@@ -220,9 +251,84 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         </div>
       </div>
 
-      <div id="sjekklister" className="brand-card p-4">
-        <h2 className="text-lg font-semibold">Sjekklister</h2>
-        <p className="mt-2 text-sm text-brand-ink/75">Placeholder til Bolge 4.</p>
+      <div id="sjekklister" className="space-y-4">
+        <div className="brand-card p-4">
+          <h2 className="text-lg font-semibold">Sjekklister</h2>
+          <p className="mt-2 text-sm text-brand-ink/75">Opprett fra mal eller fra scratch. Alle innloggede brukere kan jobbe med prosjektets sjekklister.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <form action={createProjectChecklistFromTemplateAction} className="brand-card space-y-3 p-4">
+            <input type="hidden" name="projectId" value={project.id} />
+            <h3 className="text-lg font-semibold">Fra mal</h3>
+            <label className="block text-sm font-medium">
+              Mal
+              <select name="templateId" className="brand-input mt-1" required>
+                <option value="">Velg mal</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.kategori} - {template.navn} ({template.items.length} punkter)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              Navn pa sjekkliste (valgfritt)
+              <input name="navn" className="brand-input mt-1" maxLength={150} />
+            </label>
+            <button type="submit" className="brand-button w-full" disabled={templates.length === 0}>
+              Opprett fra mal
+            </button>
+          </form>
+
+          <form action={createProjectChecklistFromScratchAction} className="brand-card space-y-3 p-4">
+            <input type="hidden" name="projectId" value={project.id} />
+            <h3 className="text-lg font-semibold">Fra scratch</h3>
+            <label className="block text-sm font-medium">
+              Navn pa sjekkliste
+              <input name="navn" className="brand-input mt-1" required minLength={2} maxLength={150} />
+            </label>
+            <label className="block text-sm font-medium">
+              Punkter (ett punkt per linje)
+              <textarea name="punkter" className="brand-input mt-1 min-h-32 resize-y" required />
+            </label>
+            <button type="submit" className="brand-button w-full">
+              Opprett fra scratch
+            </button>
+          </form>
+        </div>
+
+        <div className="brand-card p-4">
+          <h3 className="text-lg font-semibold">Eksisterende sjekklister</h3>
+          {project.checklists.length === 0 ? (
+            <p className="mt-2 text-sm text-brand-ink/75">Ingen sjekklister opprettet pa prosjektet enna.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {project.checklists.map((checklist) => {
+                const answered = checklist.items.filter((item) => item.svar !== null).length;
+                const total = checklist.items.length;
+
+                return (
+                  <Link
+                    key={checklist.id}
+                    href={`/prosjekter/${project.id}/sjekklister/${checklist.id}`}
+                    className="block rounded-xl border border-black/10 p-3 transition hover:border-brand-red/40"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="font-medium">{checklist.navn}</p>
+                      <span className="rounded-full bg-brand-canvas px-2.5 py-1 text-xs font-semibold">
+                        {answered}/{total} besvart
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-brand-ink/75">
+                      Opprettet av {checklist.createdBy.name} - {checklist.createdAt.toLocaleDateString("nb-NO")}
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <div id="timer" className="brand-card p-4">

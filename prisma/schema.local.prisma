@@ -29,17 +29,25 @@ enum ProjectBillingType {
   FASTPRIS
 }
 
+enum ChecklistItemAnswer {
+  JA
+  NEI
+  IKKE_RELEVANT
+}
+
 model User {
-  id           String    @id @default(cuid())
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         Role      @default(EMPLOYEE)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  accounts     Account[]
-  sessions     Session[]
-  auditLogs    AuditLog[] @relation("ActorAuditLogs")
+  id                        String               @id @default(cuid())
+  name                      String
+  email                     String               @unique
+  passwordHash              String
+  role                      Role                 @default(EMPLOYEE)
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+  accounts                  Account[]
+  sessions                  Session[]
+  auditLogs                 AuditLog[]           @relation("ActorAuditLogs")
+  createdProjectChecklists  ProjectChecklist[]   @relation("ChecklistCreatedBy")
+  updatedProjectChecklistItems ProjectChecklistItem[] @relation("ChecklistItemUpdatedBy")
 }
 
 model Account {
@@ -115,25 +123,93 @@ model Customer {
 }
 
 model Project {
-  id                 String             @id @default(cuid())
-  customerId         String
-  customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  navn               String
-  beskrivelse        String?
-  adresse            String?
-  status             ProjectStatus      @default(PLANLAGT)
-  billingType        ProjectBillingType @default(TIME)
+  id                   String             @id @default(cuid())
+  customerId           String
+  customer             Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  navn                 String
+  beskrivelse          String?
+  adresse              String?
+  status               ProjectStatus      @default(PLANLAGT)
+  billingType          ProjectBillingType @default(TIME)
   fastprisBelopEksMva Float?
-  timeprisEksMva     Float?
-  startDato          DateTime
-  sluttDato          DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  timeprisEksMva       Float?
+  startDato            DateTime
+  sluttDato            DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  checklists           ProjectChecklist[]
 
   @@index([customerId])
   @@index([status])
   @@index([navn])
   @@index([billingType])
+}
+
+model ChecklistTemplate {
+  id        String                  @id @default(cuid())
+  navn      String
+  kategori  String
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  items     ChecklistTemplateItem[]
+
+  @@index([navn])
+  @@index([kategori])
+}
+
+model ChecklistTemplateItem {
+  id         String            @id @default(cuid())
+  templateId String
+  template   ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tekst      String
+  rekkefolge Int
+
+  @@index([templateId])
+  @@index([rekkefolge])
+}
+
+model ProjectChecklist {
+  id          String               @id @default(cuid())
+  projectId   String
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  navn        String
+  createdById String
+  createdBy   User                 @relation("ChecklistCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime             @default(now())
+  items       ProjectChecklistItem[]
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model ProjectChecklistItem {
+  id            String                    @id @default(cuid())
+  checklistId   String
+  checklist     ProjectChecklist          @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  tekst          String
+  rekkefolge     Int
+  svar           ChecklistItemAnswer?
+  kommentar      String?
+  updatedById    String?
+  updatedBy      User?                    @relation("ChecklistItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt      DateTime                 @updatedAt
+  attachments    ChecklistItemAttachment[]
+
+  @@index([checklistId])
+  @@index([rekkefolge])
+  @@index([updatedById])
+}
+
+model ChecklistItemAttachment {
+  id              String               @id @default(cuid())
+  checklistItemId String
+  checklistItem   ProjectChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  filUrl          String
+  filType         String
+  createdAt       DateTime             @default(now())
+
+  @@index([checklistItemId])
 }
 
 
