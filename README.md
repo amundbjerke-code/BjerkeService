@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-4 status
+## Bolge 1-5 status
 
 Ferdig i denne leveransen:
 
@@ -28,14 +28,30 @@ Ferdig i denne leveransen:
   - Kommentar per punkt
   - Bildevedlegg per punkt (flere bilder)
   - Autosave + debounce + local draft for refresh-sikkerhet
+- Timer/okonomi (Bolge 5):
+  - Timeregistrering per prosjekt: dato, ansatt, timer, beskrivelse, belop eks mva, fakturerbar
+  - Belop kan auto-beregnes fra prosjekt-timepris og overstyres manuelt
+  - Prosjektside viser timer per 14-dagersperiode med summering
+  - Fastpris-forbruk vises mot fastprisbelop
+  - Rapportside "Fakturer naa" viser summer per prosjekt for valgt 14-dagersperiode
 
-## Tilgangsvalg (Bolge 4)
+## Tilgangsvalg
 
-Prosjekt- og sjekklistetilgang er satt til default policy:
+Prosjekt-, sjekkliste- og timer-tilgang er satt til default policy:
 
-- Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan se alle prosjekter og sjekklister.
+- Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan se alle prosjekter og registrere timer.
 
 Dette er valgt fordi prosjekt-eierskap ikke er modellert enna.
+
+## Kostmodell for FASTPRIS (Bolge 5)
+
+Default kostmodell na:
+
+- `forbruk` for fastpris = sum registrert `belopEksMva` pa timeregistreringer.
+
+Datamodellen er forberedt for senere internkost-modell:
+
+- `TimeEntry.internKostPerTime` finnes som valgfritt felt for framtidig bruk.
 
 ## Teknologistack
 
@@ -46,7 +62,7 @@ Dette er valgt fordi prosjekt-eierskap ikke er modellert enna.
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-4)
+## Datamodell (Bolge 1-5)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -57,6 +73,7 @@ Kjernetabeller:
 - `AuditLog`
 - `Customer`
 - `Project`
+- `TimeEntry`
 - `ChecklistTemplate`
 - `ChecklistTemplateItem`
 - `ProjectChecklist`
@@ -93,6 +110,14 @@ Sjekklister:
 - `GET /api/project-checklists/:checklistId`
 - `PATCH /api/project-checklists/:checklistId/items/:itemId`
 - `POST /api/project-checklists/items/:itemId/attachments`
+
+Timer/okonomi:
+
+- `GET /api/projects/:projectId/time-entries`
+- `POST /api/projects/:projectId/time-entries`
+- `GET /api/time-entries/:timeEntryId`
+- `PATCH /api/time-entries/:timeEntryId`
+- `DELETE /api/time-entries/:timeEntryId`
 
 ## Vedleggslagring
 

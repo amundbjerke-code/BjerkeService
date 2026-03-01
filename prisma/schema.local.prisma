@@ -48,6 +48,7 @@ model User {
   auditLogs                 AuditLog[]           @relation("ActorAuditLogs")
   createdProjectChecklists  ProjectChecklist[]   @relation("ChecklistCreatedBy")
   updatedProjectChecklistItems ProjectChecklistItem[] @relation("ChecklistItemUpdatedBy")
+  timeEntries               TimeEntry[]
 }
 
 model Account {
@@ -138,11 +139,32 @@ model Project {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   checklists           ProjectChecklist[]
+  timeEntries          TimeEntry[]
 
   @@index([customerId])
   @@index([status])
   @@index([navn])
   @@index([billingType])
+}
+
+model TimeEntry {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  dato             DateTime
+  timer            Float
+  beskrivelse      String?
+  belopEksMva      Float
+  fakturerbar      Boolean  @default(true)
+  internKostPerTime Float?
+  createdAt        DateTime @default(now())
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([dato])
+  @@index([fakturerbar])
 }
 
 model ChecklistTemplate {
