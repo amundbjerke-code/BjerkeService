@@ -51,17 +51,27 @@ export async function GET(request: Request, context: { params: Promise<{ custome
   }
 
   const customer = await db.customer.findUnique({
-    where: { id: parsedParams.data.customerId }
+    where: { id: parsedParams.data.customerId },
+    include: {
+      projects: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          navn: true,
+          status: true,
+          billingType: true,
+          startDato: true,
+          sluttDato: true
+        }
+      }
+    }
   });
   if (!customer) {
     return NextResponse.json({ error: "Kunde ikke funnet" }, { status: 404 });
   }
 
   return NextResponse.json({
-    data: {
-      ...customer,
-      prosjekter: []
-    }
+    data: customer
   });
 }
 

@@ -17,6 +17,18 @@ enum CustomerStatus {
   INACTIVE
 }
 
+enum ProjectStatus {
+  PLANLAGT
+  PAGAR
+  FERDIG
+  FAKTURERT
+}
+
+enum ProjectBillingType {
+  TIME
+  FASTPRIS
+}
+
 model User {
   id           String    @id @default(cuid())
   name         String
@@ -94,11 +106,34 @@ model Customer {
   status    CustomerStatus @default(ACTIVE)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+  projects  Project[]
 
   @@index([status])
   @@index([navn])
   @@index([telefon])
   @@index([epost])
+}
+
+model Project {
+  id                 String             @id @default(cuid())
+  customerId         String
+  customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  navn               String
+  beskrivelse        String?
+  adresse            String?
+  status             ProjectStatus      @default(PLANLAGT)
+  billingType        ProjectBillingType @default(TIME)
+  fastprisBelopEksMva Float?
+  timeprisEksMva     Float?
+  startDato          DateTime
+  sluttDato          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+  @@index([navn])
+  @@index([billingType])
 }
 
 

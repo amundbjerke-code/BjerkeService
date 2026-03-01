@@ -1,4 +1,5 @@
 import { CustomerStatus } from "@prisma/client";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -7,6 +8,7 @@ import {
   updateCustomerAction
 } from "@/app/actions/customer-actions";
 import { db } from "@/lib/db";
+import { getProjectBillingTypeLabel, getProjectStatusLabel } from "@/lib/project-meta";
 
 type Props = {
   params: Promise<{ customerId: string }>;
@@ -37,7 +39,19 @@ export default async function CustomerDetailPage({ params, searchParams }: Props
   const success = getSuccessMessage(toSingleValue(resolvedSearchParams.success));
 
   const customer = await db.customer.findUnique({
-    where: { id: customerId }
+    where: { id: customerId },
+    include: {
+      projects: {
+        orderBy: [{ status: "asc" }, { startDato: "desc" }],
+        select: {
+          id: true,
+          navn: true,
+          status: true,
+          billingType: true,
+          startDato: true
+        }
+      }
+    }
   });
 
   if (!customer) {
@@ -126,7 +140,10 @@ export default async function CustomerDetailPage({ params, searchParams }: Props
             <a href={toDialHref(customer.telefon)} className="brand-button block text-center">
               Ring {customer.telefon}
             </a>
-            <a href={`mailto:${customer.epost}`} className="block rounded-xl border border-brand-red px-3 py-2 text-center text-sm font-semibold text-brand-red">
+            <a
+              href={`mailto:${customer.epost}`}
+              className="block rounded-xl border border-brand-red px-3 py-2 text-center text-sm font-semibold text-brand-red"
+            >
               Send e-post
             </a>
           </div>
@@ -144,18 +161,44 @@ export default async function CustomerDetailPage({ params, searchParams }: Props
             ) : (
               <form action={activateCustomerAction}>
                 <input type="hidden" name="customerId" value={customer.id} />
-                <button type="submit" className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+                >
                   Aktiver kunde
                 </button>
               </form>
             )}
           </div>
-
-          <div className="brand-card p-4">
-            <h2 className="text-lg font-semibold">Prosjekter</h2>
-            <p className="mt-2 text-sm text-brand-ink/75">Ingen prosjekter koblet ennå. Kommer i Bølge 3.</p>
-          </div>
         </div>
+      </div>
+
+      <div className="brand-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Prosjekter</h2>
+          <Link href={`/prosjekter?customerId=${customer.id}`} className="rounded-lg px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-canvas">
+            Se alle prosjekter
+          </Link>
+        </div>
+
+        {customer.projects.length === 0 ? (
+          <p className="mt-2 text-sm text-brand-ink/75">Ingen prosjekter registrert pa denne kunden enna.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {customer.projects.map((project) => (
+              <Link key={project.id} href={`/prosjekter/${project.id}`} className="block rounded-xl border border-black/10 p-3 transition hover:border-brand-red/40">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-medium">{project.navn}</p>
+                  <div className="flex gap-2 text-xs">
+                    <span className="rounded-full bg-brand-canvas px-2 py-1">{getProjectStatusLabel(project.status)}</span>
+                    <span className="rounded-full bg-brand-canvas px-2 py-1">{getProjectBillingTypeLabel(project.billingType)}</span>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-brand-ink/75">Start: {project.startDato.toLocaleDateString("nb-NO")}</p>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
