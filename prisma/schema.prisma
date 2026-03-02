@@ -128,6 +128,8 @@ model User {
   certificates              EmployeeCertificate[]
   staffingAssignments       ProjectStaffingAssignment[] @relation("StaffingAssignmentEmployee")
   staffingAssignmentsCreated ProjectStaffingAssignment[] @relation("StaffingAssignmentCreatedBy")
+  productDocumentsCreated   ProjectProductDocument[] @relation("ProjectProductDocumentCreatedBy")
+  fdvHandoversCreated       ProjectFdvHandover[] @relation("ProjectFdvHandoverCreatedBy")
 }
 
 model Account {
@@ -226,6 +228,8 @@ model Project {
   financeEntries       ProjectFinanceEntry[]
   materialConsumptions ProjectMaterialConsumption[]
   staffingAssignments  ProjectStaffingAssignment[]
+  productDocuments     ProjectProductDocument[]
+  fdvHandover          ProjectFdvHandover?
 
   @@index([customerId])
   @@index([status])
@@ -249,6 +253,41 @@ model ProjectStaffingAssignment {
   @@index([projectId])
   @@index([userId])
   @@index([dato])
+  @@index([createdById])
+}
+
+model ProjectProductDocument {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tittel      String
+  filUrl      String
+  filType     String
+  notat       String?
+  createdById String
+  createdBy   User     @relation("ProjectProductDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model ProjectFdvHandover {
+  id                   String   @id @default(cuid())
+  projectId            String   @unique
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  customerName         String
+  customerSignature    String
+  signedByName         String
+  signedAt             DateTime
+  note                 String?
+  createdById          String
+  createdBy            User     @relation("ProjectFdvHandoverCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([signedAt])
   @@index([createdById])
 }
 

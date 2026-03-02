@@ -373,6 +373,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
           <a href="#dokumenter" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
             Dokumenter
           </a>
+          <Link href={`/prosjekter/${project.id}/fdv`} className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
+            FDV-pakke
+          </Link>
         </nav>
       </div>
 
@@ -1260,6 +1263,9 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         >
           Generer prosjektrapport
         </a>
+        <Link href={`/prosjekter/${project.id}/fdv`} className="inline-block rounded-lg bg-brand-canvas px-4 py-2 text-sm font-semibold hover:bg-brand-canvas/80">
+          Apne FDV-pakke
+        </Link>
       </div>
     </section>
   );

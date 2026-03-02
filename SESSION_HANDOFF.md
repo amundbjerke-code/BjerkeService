@@ -11,6 +11,7 @@
 - Bolge 10 (Ansattmodul / HR Light) er implementert.
 - Bolge 11 (Bulk-godkjenning + sertifikatvarsling) er implementert.
 - Bolge 12 (Planlegging & Ressursstyring) er implementert.
+- Bolge 13 (Dokumentasjon & FDV-modul) er implementert.
 
 ## Levert i Bolge 8
 - Eget materialregister med:
@@ -101,6 +102,24 @@
   - Ny tabell `ProjectStaffingAssignment`
   - Nye API-endepunkter under `/api/planning/*`
 
+## Levert i Bolge 13 (2026-03-02)
+- Ny FDV-modul per prosjekt:
+  - Egen side pa `/prosjekter/:projectId/fdv`
+  - Hurtiglenke fra prosjektsiden (`Dokumenter` + seksjonsnavigasjon)
+- Automatisk FDV-innhold:
+  - Sjekklistesammendrag (besvart/total + bildemengde)
+  - Bildesamling fra sjekklistevedlegg og avviksvedlegg
+  - Produktdokumentasjon for prosjekt
+- Produktdokumentasjon:
+  - Opplasting av fil med tittel/notat (`ProjectProductDocument`)
+  - Sletting av opplastede dokumenter
+- FDV-PDF:
+  - Ny PDF-generator pa `/api/prosjekter/:projectId/fdv-pdf`
+  - Inkluderer sammendrag, sjekklister, produktdokumenter, signeringsstatus og bildeseksjon
+- Signering ved overlevering:
+  - Ny signeringsflyt med kunde, kundesignatur (navn), signert av (Bjerke) og dato
+  - Lagres/oppdateres pa prosjekt (`ProjectFdvHandover`)
+
 ## Viktige filer endret i dag
 - prisma/schema.prisma
 - prisma/migrations/20260302110000_wave8_material_inventory/migration.sql
@@ -158,12 +177,23 @@
 - README.md
 - SESSION_HANDOFF.md
 
+## Viktige filer endret i Bolge 13
+- prisma/schema.prisma
+- prisma/migrations/20260302233500_wave13_fdv_module/migration.sql
+- app/actions/fdv-actions.ts
+- app/(protected)/prosjekter/[projectId]/fdv/page.tsx
+- app/api/prosjekter/[projectId]/fdv-pdf/route.ts
+- app/(protected)/prosjekter/[projectId]/page.tsx
+- README.md
+- SESSION_HANDOFF.md
+
 ## Migrasjon / DB
 - Ny migrasjon lagt til og kjort:
   - `20260302110000_wave8_material_inventory`
   - `20260302184050_wave10_hr_light`
   - `20260302211000_wave11_bulk_approval_and_certificate_alerts`
   - `20260302225000_wave12_planning_resource_management`
+  - `20260302233500_wave13_fdv_module`
 - Prisma client regenerert.
 
 ## Verifisering kjort
@@ -187,12 +217,16 @@
 - npm.cmd run prisma:generate (Bolge 12)
 - .\\node_modules\\.bin\\tsc.cmd --noEmit (Bolge 12)
 - npm.cmd run build (Bolge 12)
+- npm.cmd run prisma:migrate (Bolge 13)
+- npm.cmd run prisma:generate (Bolge 13)
+- .\\node_modules\\.bin\\tsc.cmd --noEmit (Bolge 13)
+- npm.cmd run build (Bolge 13)
 
 ## Drift
 - Dev-server er ikke startet i denne sesjonen.
 - Start med: `npm.cmd run dev`
 
 ## Neste naturlige steg
-1. Legg til ukevis kopiering av planlinjer (f.eks. "kopier denne uken til neste uke").
-2. Legg til filter for prosjekt/ansatt i planleggingstabellen for raskere daglig bruk.
-3. Legg til eksport av plan (CSV/PDF) for montorplan per uke.
+1. Legg til faktisk frihand-signatur (tegning pa skjerm) i stedet for kun navnesignatur.
+2. Legg til versjonering av FDV-pakke (v1, v2, ... ) med historikk.
+3. Legg til e-postutsendelse av FDV-PDF direkte til kunde ved overlevering.

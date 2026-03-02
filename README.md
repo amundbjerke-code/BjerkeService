@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-12 status
+## Bolge 1-13 status
 
 Ferdig i denne leveransen:
 
@@ -81,6 +81,12 @@ Ferdig i denne leveransen:
   - Kapasitetsvisning fremover per dag (booket vs tilgjengelig)
   - Overbooking-varsel med liste over overbookede ansatt-dager
   - Automatisk forslag til bemanning basert pa prosjektstorrelse + tilgjengelig kapasitet
+- Dokumentasjon & FDV-modul (Bolge 13):
+  - Egen FDV-side per prosjekt: `/prosjekter/:projectId/fdv`
+  - Automatisk samling av sjekklister, bilder og avviksbilder
+  - Produktdokumentasjon med opplasting/sletting av filer
+  - Generering av komplett FDV-PDF til kunde (`/api/prosjekter/:projectId/fdv-pdf`)
+  - Signering ved overlevering med kunde- og montorsignatur (navn + dato)
 
 ## Tilgangsvalg
 
@@ -112,7 +118,7 @@ Datamodellen er forberedt for senere internkost-modell:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-12)
+## Datamodell (Bolge 1-13)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -128,6 +134,8 @@ Kjernetabeller:
 - `EmployeeAbsence`
 - `EmployeeCertificate`
 - `ProjectStaffingAssignment`
+- `ProjectProductDocument`
+- `ProjectFdvHandover`
 - `ChecklistTemplate`
 - `ChecklistTemplateItem`
 - `ProjectChecklist`
@@ -189,6 +197,10 @@ Planlegging:
 - `DELETE /api/planning/assignments/:assignmentId`
 - `POST /api/planning/suggestions`
 
+FDV:
+
+- `GET /api/prosjekter/:projectId/fdv-pdf`
+
 Tilbud:
 
 - `GET /api/offers`
@@ -203,6 +215,8 @@ Tilbud:
 Bildevedlegg lagres lokalt under:
 
 - `public/uploads/checklist-attachments`
+- `public/uploads/avvik-attachments`
+- `public/uploads/fdv-product-documents`
 
 Databasen lagrer filreferanse i `ChecklistItemAttachment.filUrl`.
 
