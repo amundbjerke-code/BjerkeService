@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-8 status
+## Bolge 1-11 status
 
 Ferdig i denne leveransen:
 
@@ -49,10 +49,32 @@ Ferdig i denne leveransen:
   - Stottes for bade `FASTPRIS` og `TIME`-prosjekter
 - Material- og lagerstyring (Bolge 8):
   - Eget materialregister med leverandor, innkjopspris, standard paslag og lagerbeholdning
+  - Redigering/sletting av leverandorer i registeret (sletting blokkert ved avhengigheter)
+  - Redigering/sletting av materialer i registeret (sletting blokkert ved avhengigheter)
   - Lavlager-varsel per materiale (`lavLagerGrense`)
   - Materialforbruk fra lager per prosjekt (med automatisk lager-trekk)
-  - Innkjopsordre genereres automatisk fra lavlager-linjer
-  - Innkjopsordre kan markeres som mottatt for automatisk lager-okning
+  - Innkjopsordre genereres automatisk fra lavlager-linjer + historisk forbruk (90-dagers vindu)
+  - Innkjopsordre statusflyt: `UTKAST -> SENDT -> MOTTATT`, med stotte for `ANNULLERT`
+  - Mottak av ordre gir automatisk lager-okning
+- Avansert okonomi-dashboard (Bolge 9):
+  - Omsetning siste 30 og 90 dager
+  - Fakturerbart vs ikke fakturerbart arbeid
+  - Dekningsgrad per prosjekt i valgt periode (30/90 dager)
+  - Mest lonnsomme prosjekt-type basert pa resultat og dekningsgrad
+  - Ansatt-produktivitet med fakturerbar timer-prosent
+  - Indikativ likviditetsprognose (30/60/90 dager) basert pa 90-dagers run-rate
+- Ansattmodul (HR Light, Bolge 10):
+  - Ansattprofiler med rolle, stilling, fagbrev, sertifikater og kompetansenotat
+  - Timelonn og internkost per ansatt (brukes som kostgrunnlag pa timer)
+  - Fravaersregistrering (`FERIE`, `SYK`, `PERMISJON`, `ANNET`)
+  - Timegodkjenning: `PENDING`, `APPROVED`, `REJECTED` (admin styrt)
+  - Fakturering/rapport bruker kun godkjente fakturerbare timer
+  - Fastpris-margin og kostberegning bruker internkost der det finnes
+- Driftstillegg etter Bolge 10 (Bolge 11):
+  - Bulk-godkjenning av ventende timer per prosjekt og datoperiode
+  - Dashboard-varsel for andel ventende fakturerbart grunnlag
+  - Egen sertifikatlogg med gyldig-til dato (`EmployeeCertificate`)
+  - Varsel pa HR-siden for utlopte/utlopende sertifikater (30 dagers vindu)
 
 ## Tilgangsvalg
 
@@ -60,6 +82,8 @@ Prosjekt-, sjekkliste- og timer-tilgang er satt til default policy:
 
 - Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan se alle prosjekter og registrere timer.
 - Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan opprette og administrere tilbud.
+- Kun `ADMIN` kan godkjenne/avvise timer for fakturering.
+- Kun `ADMIN` kan administrere HR Light-modulen pa `/admin/users`.
 
 Dette er valgt fordi prosjekt-eierskap ikke er modellert enna.
 
@@ -82,7 +106,7 @@ Datamodellen er forberedt for senere internkost-modell:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-8)
+## Datamodell (Bolge 1-11)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -94,6 +118,9 @@ Kjernetabeller:
 - `Customer`
 - `Project`
 - `TimeEntry`
+- `EmployeeProfile`
+- `EmployeeAbsence`
+- `EmployeeCertificate`
 - `ChecklistTemplate`
 - `ChecklistTemplateItem`
 - `ProjectChecklist`

@@ -1,3 +1,4 @@
+import { TimeEntryApprovalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { buildCSV } from "@/lib/csv";
@@ -34,6 +35,13 @@ function getFinanceTotalsByProject(sums: FinanceGroupByRow[]): Map<string, { exp
   return totals;
 }
 
+function getTimeCost(timer: number, belopEksMva: number, internKostPerTime: number | null): number {
+  if (typeof internKostPerTime === "number") {
+    return Number((timer * internKostPerTime).toFixed(2));
+  }
+  return belopEksMva;
+}
+
 export async function GET(request: Request) {
   const { session, response } = await requireAuthApi();
   if (response) return response;
@@ -45,34 +53,21 @@ export async function GET(request: Request) {
   const periodStart = url.searchParams.get("periodStart");
   const period = get14DayPeriodFromInput(periodStart);
 
-  const [periodTimeSums, periodBillableTimeSums, periodFinanceSums] = await Promise.all([
-    db.timeEntry.groupBy({
-      by: ["projectId"],
+  const [periodTimeEntries, periodFinanceSums] = await Promise.all([
+    db.timeEntry.findMany({
       where: {
         dato: {
           gte: period.start,
           lt: period.endExclusive
         }
       },
-      _sum: {
+      select: {
+        projectId: true,
         timer: true,
-        belopEksMva: true
-      },
-      _count: {
-        _all: true
-      }
-    }),
-    db.timeEntry.groupBy({
-      by: ["projectId"],
-      where: {
-        dato: {
-          gte: period.start,
-          lt: period.endExclusive
-        },
-        fakturerbar: true
-      },
-      _sum: {
-        belopEksMva: true
+        belopEksMva: true,
+        fakturerbar: true,
+        approvalStatus: true,
+        internKostPerTime: true
       }
     }),
     db.projectFinanceEntry.groupBy({
@@ -93,8 +88,8 @@ export async function GET(request: Request) {
   ]);
 
   const projectIdSet = new Set<string>();
-  for (const sum of periodTimeSums) {
-    projectIdSet.add(sum.projectId);
+  for (const entry of periodTimeEntries) {
+    projectIdSet.add(entry.projectId);
   }
   for (const sum of periodFinanceSums) {
     projectIdSet.add(sum.projectId);
@@ -119,9 +114,35 @@ export async function GET(request: Request) {
     : [];
 
   const projectById = new Map(projects.map((project) => [project.id, project]));
-  const periodTimeByProject = new Map(periodTimeSums.map((sum) => [sum.projectId, sum]));
-  const periodBillableByProject = new Map(periodBillableTimeSums.map((sum) => [sum.projectId, sum._sum.belopEksMva ?? 0]));
   const periodFinanceByProject = getFinanceTotalsByProject(periodFinanceSums as FinanceGroupByRow[]);
+  const periodTimeByProject = new Map<
+    string,
+    {
+      hours: number;
+      amount: number;
+      cost: number;
+      approvedBillableAmount: number;
+      timeEntryCount: number;
+    }
+  >();
+
+  for (const entry of periodTimeEntries) {
+    const current = periodTimeByProject.get(entry.projectId) ?? {
+      hours: 0,
+      amount: 0,
+      cost: 0,
+      approvedBillableAmount: 0,
+      timeEntryCount: 0
+    };
+    current.hours += entry.timer;
+    current.amount += entry.belopEksMva;
+    current.cost += getTimeCost(entry.timer, entry.belopEksMva, entry.internKostPerTime);
+    current.timeEntryCount += 1;
+    if (entry.fakturerbar && entry.approvalStatus === TimeEntryApprovalStatus.APPROVED) {
+      current.approvedBillableAmount += entry.belopEksMva;
+    }
+    periodTimeByProject.set(entry.projectId, current);
+  }
 
   const dataRows = projectIds
     .map((projectId) => {
@@ -130,21 +151,19 @@ export async function GET(request: Request) {
         return null;
       }
 
-      const periodTime = periodTimeByProject.get(projectId);
+      const periodTime = periodTimeByProject.get(projectId) ?? { hours: 0, amount: 0, cost: 0, approvedBillableAmount: 0, timeEntryCount: 0 };
       const periodFinance = periodFinanceByProject.get(projectId) ?? { expenses: 0, surcharges: 0, entryCount: 0 };
-      const periodAmount = periodTime?._sum.belopEksMva ?? 0;
-      const periodHours = periodTime?._sum.timer ?? 0;
-      const periodBillableTime = periodBillableByProject.get(projectId) ?? 0;
-      const invoiceNow = periodBillableTime + periodFinance.surcharges;
-      const periodResult = invoiceNow - (periodAmount + periodFinance.expenses);
+      const invoiceNow = periodTime.approvedBillableAmount + periodFinance.surcharges;
+      const periodResult = invoiceNow - (periodTime.cost + periodFinance.expenses);
 
       return {
         project,
-        timeEntryCount: periodTime?._count._all ?? 0,
+        timeEntryCount: periodTime.timeEntryCount,
         financeEntryCount: periodFinance.entryCount,
-        periodHours,
-        periodAmount,
-        periodBillableTime,
+        periodHours: periodTime.hours,
+        periodAmount: periodTime.amount,
+        periodCost: periodTime.cost,
+        periodApprovedBillable: periodTime.approvedBillableAmount,
         periodSurcharges: periodFinance.surcharges,
         periodExpenses: periodFinance.expenses,
         invoiceNow,
@@ -165,7 +184,8 @@ export async function GET(request: Request) {
     "Okonomiposter",
     "Timer",
     "Belop tid (alle)",
-    "Fakturerbar tid",
+    "Kost tid (intern)",
+    "Godkjent fakturerbar tid",
     "Tillegg",
     "Utgifter",
     "Fakturer naa",
@@ -183,7 +203,8 @@ export async function GET(request: Request) {
     row.financeEntryCount,
     row.periodHours,
     row.periodAmount,
-    row.periodBillableTime,
+    row.periodCost,
+    row.periodApprovedBillable,
     row.periodSurcharges,
     row.periodExpenses,
     row.invoiceNow,

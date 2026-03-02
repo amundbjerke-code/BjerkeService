@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { TimeEntryApprovalStatus } from "@prisma/client";
 import { notFound } from "next/navigation";
 
 import { createAvvikAction } from "@/app/actions/avvik-actions";
@@ -6,6 +7,7 @@ import {
   createProjectChecklistFromScratchAction,
   createProjectChecklistFromTemplateAction
 } from "@/app/actions/checklist-actions";
+import { approveTimeEntryAction, rejectTimeEntryAction, resetTimeEntryApprovalAction } from "@/app/actions/hr-actions";
 import { createProjectMaterialConsumptionAction } from "@/app/actions/material-inventory-actions";
 import { createMaterialAction, deleteMaterialAction, updateMaterialStatusAction } from "@/app/actions/material-actions";
 import { createProjectFinanceEntryAction, deleteProjectFinanceEntryAction, updateProjectFinanceEntryAction } from "@/app/actions/project-finance-actions";
@@ -17,6 +19,7 @@ import { getMaterialStatusColor, getMaterialStatusLabel, materialStatusOptions }
 import { getProjectFinanceEntryTypeColor, getProjectFinanceEntryTypeLabel, projectFinanceEntryTypeOptions } from "@/lib/project-finance-meta";
 import { getProjectBillingTypeLabel, getProjectStatusLabel, projectBillingTypeOptions, projectStatusOptions } from "@/lib/project-meta";
 import { requireAuthPage } from "@/lib/rbac";
+import { getTimeEntryApprovalStatusColor, getTimeEntryApprovalStatusLabel } from "@/lib/time-entry-meta";
 import { buildPeriodOptions, formatDateInput, get14DayPeriodFromInput, shiftPeriod } from "@/lib/time-period";
 
 type Props = {
@@ -33,6 +36,9 @@ function getSuccessMessage(success: string): string | null {
   if (success === "updated") return "Prosjektet ble oppdatert.";
   if (success === "time-created") return "Timer ble registrert.";
   if (success === "time-deleted") return "Timeregistrering ble slettet.";
+  if (success === "time-approved") return "Timeregistrering ble godkjent.";
+  if (success === "time-rejected") return "Timeregistrering ble avvist.";
+  if (success === "time-approval-reset") return "Timegodkjenning ble nullstilt.";
   if (success === "avvik-created") return "Avvik ble registrert.";
   if (success === "avvik-deleted") return "Avvik ble slettet.";
   if (success === "material-created") return "Material ble lagt til.";
@@ -70,6 +76,13 @@ function formatHours(value: number): string {
   return value.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function getTimeEntryCost(timer: number, belopEksMva: number, internKostPerTime: number | null): number {
+  if (typeof internKostPerTime === "number") {
+    return Number((timer * internKostPerTime).toFixed(2));
+  }
+  return belopEksMva;
+}
+
 export default async function ProjectDetailPage({ params, searchParams }: Props) {
   const session = await requireAuthPage();
   const { projectId } = await params;
@@ -86,7 +99,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const nextPeriod = shiftPeriod(activePeriod, 1);
   const todayValue = formatDateInput(new Date());
 
-  const [project, customers, templates, periodTimeEntries, totalTimeSummary, totalBillableSummary, avvikList, materialList, inventoryMaterials, projectMaterialConsumptions, financeEntries] = await Promise.all([
+  const [project, customers, templates, periodTimeEntries, totalTimeEntries, avvikList, materialList, inventoryMaterials, projectMaterialConsumptions, financeEntries] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
       include: {
@@ -151,23 +164,23 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             name: true,
             email: true
           }
+        },
+        approvedBy: {
+          select: {
+            id: true,
+            name: true
+          }
         }
       }
     }),
-    db.timeEntry.aggregate({
+    db.timeEntry.findMany({
       where: { projectId },
-      _sum: {
+      select: {
         timer: true,
-        belopEksMva: true
-      }
-    }),
-    db.timeEntry.aggregate({
-      where: {
-        projectId,
-        fakturerbar: true
-      },
-      _sum: {
-        belopEksMva: true
+        belopEksMva: true,
+        fakturerbar: true,
+        approvalStatus: true,
+        internKostPerTime: true
       }
     }),
     db.avvik.findMany({
@@ -241,17 +254,35 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
     (accumulator, entry) => {
       accumulator.hours += entry.timer;
       accumulator.totalAmount += entry.belopEksMva;
+      accumulator.totalCost += getTimeEntryCost(entry.timer, entry.belopEksMva, entry.internKostPerTime);
       if (entry.fakturerbar) {
         accumulator.billableAmount += entry.belopEksMva;
+        accumulator.billableHours += entry.timer;
+      }
+      if (entry.fakturerbar && entry.approvalStatus === TimeEntryApprovalStatus.APPROVED) {
+        accumulator.billableApprovedAmount += entry.belopEksMva;
+        accumulator.billableApprovedHours += entry.timer;
       }
       return accumulator;
     },
-    { hours: 0, totalAmount: 0, billableAmount: 0 }
+    {
+      hours: 0,
+      totalAmount: 0,
+      totalCost: 0,
+      billableAmount: 0,
+      billableHours: 0,
+      billableApprovedAmount: 0,
+      billableApprovedHours: 0
+    }
   );
 
-  const totalHoursToDate = totalTimeSummary._sum.timer ?? 0;
-  const totalAmountToDate = totalTimeSummary._sum.belopEksMva ?? 0;
-  const totalBillableToDate = totalBillableSummary._sum.belopEksMva ?? 0;
+  const totalHoursToDate = totalTimeEntries.reduce((sum, entry) => sum + entry.timer, 0);
+  const totalAmountToDate = totalTimeEntries.reduce((sum, entry) => sum + entry.belopEksMva, 0);
+  const totalTimeCostToDate = totalTimeEntries.reduce((sum, entry) => sum + getTimeEntryCost(entry.timer, entry.belopEksMva, entry.internKostPerTime), 0);
+  const totalBillableApprovedToDate = totalTimeEntries.reduce(
+    (sum, entry) => sum + (entry.fakturerbar && entry.approvalStatus === TimeEntryApprovalStatus.APPROVED ? entry.belopEksMva : 0),
+    0
+  );
 
   const financeTotals = financeEntries.reduce(
     (accumulator, entry) => {
@@ -281,20 +312,20 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const baseRevenue =
     project.billingType === "FASTPRIS"
       ? (project.fastprisBelopEksMva ?? 0)
-      : totalBillableToDate;
+      : totalBillableApprovedToDate;
   const totalRevenue = baseRevenue + financeTotals.surcharges;
-  const totalCost = totalAmountToDate + financeTotals.expenses;
+  const totalCost = totalTimeCostToDate + financeTotals.expenses;
   const resultEksMva = totalRevenue - totalCost;
   const isPositiveResult = resultEksMva >= 0;
 
   const fastprisConsumption = project.billingType === "FASTPRIS" && project.fastprisBelopEksMva !== null
     ? {
         fastpris: project.fastprisBelopEksMva + financeTotals.surcharges,
-        consumed: totalAmountToDate + financeTotals.expenses,
-        remaining: project.fastprisBelopEksMva + financeTotals.surcharges - (totalAmountToDate + financeTotals.expenses),
+        consumed: totalTimeCostToDate + financeTotals.expenses,
+        remaining: project.fastprisBelopEksMva + financeTotals.surcharges - (totalTimeCostToDate + financeTotals.expenses),
         percent:
           project.fastprisBelopEksMva + financeTotals.surcharges > 0
-            ? ((totalAmountToDate + financeTotals.expenses) / (project.fastprisBelopEksMva + financeTotals.surcharges)) * 100
+            ? ((totalTimeCostToDate + financeTotals.expenses) / (project.fastprisBelopEksMva + financeTotals.surcharges)) * 100
             : 0
       }
     : null;
@@ -443,6 +474,8 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             <p>Fastpris: {formatMoney(project.fastprisBelopEksMva)}</p>
             <p>Total timer (alle perioder): {formatHours(totalHoursToDate)} t</p>
             <p>Total verdi (alle perioder): {formatMoney(totalAmountToDate)}</p>
+            <p>Total internkost tid (alle perioder): {formatMoney(totalTimeCostToDate)}</p>
+            <p>Godkjent fakturagrunnlag (hittil): {formatMoney(totalBillableApprovedToDate)}</p>
             <p>Tillegg (inntekt): {formatMoney(financeTotals.surcharges)}</p>
             <p>Ekstra utgifter: {formatMoney(financeTotals.expenses)}</p>
             <p className={isPositiveResult ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>
@@ -549,7 +582,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             <div>
               <h2 className="text-lg font-semibold">Timer</h2>
               <p className="mt-2 text-sm text-brand-ink/75">
-                Fakturagrunnlag i 14-dagersperioder. Ansatt registreres automatisk som innlogget bruker ({session.user.name ?? session.user.email}).
+                Fakturagrunnlag i 14-dagersperioder. Kun godkjente fakturerbare timer tas med i fakturering.
               </p>
             </div>
             <div className="flex gap-2 text-sm">
@@ -647,14 +680,17 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
                   <p className="mt-1 font-semibold">{formatMoney(periodSummary.totalAmount)}</p>
                 </div>
                 <div className="rounded-lg bg-brand-canvas p-3">
-                  <p className="text-xs uppercase text-brand-ink/70">Fakturagrunnlag</p>
-                  <p className="mt-1 font-semibold">{formatMoney(periodSummary.billableAmount)}</p>
+                  <p className="text-xs uppercase text-brand-ink/70">Fakturagrunnlag (godkjent)</p>
+                  <p className="mt-1 font-semibold">{formatMoney(periodSummary.billableApprovedAmount)}</p>
+                  <p className="text-xs text-brand-ink/70">
+                    {formatHours(periodSummary.billableApprovedHours)} t av {formatHours(periodSummary.billableHours)} fakturerbare t
+                  </p>
                 </div>
               </div>
 
               {fastprisConsumption ? (
                 <div className="mt-3 rounded-lg border border-black/10 p-3 text-sm">
-                  <p className="font-semibold">Fastpris-forbruk (timer + utgifter mot fastpris + tillegg)</p>
+                  <p className="font-semibold">Fastpris-forbruk (internkost tid + utgifter mot fastpris + tillegg)</p>
                   <p className="mt-1">Forbruk hittil: {formatMoney(fastprisConsumption.consumed)} av {formatMoney(fastprisConsumption.fastpris)}</p>
                   <p>
                     {fastprisConsumption.remaining >= 0
@@ -686,8 +722,11 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
                       </div>
                       <p className="mt-2 text-sm text-brand-ink/80">{entry.beskrivelse || "Ingen beskrivelse"}</p>
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-brand-canvas px-2 py-1 text-xs">{entry.fakturerbar ? "Fakturerbar" : "Ikke fakturerbar"}</span>
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${getTimeEntryApprovalStatusColor(entry.approvalStatus)}`}>
+                            {getTimeEntryApprovalStatusLabel(entry.approvalStatus)}
+                          </span>
                           <span className="font-semibold">{formatMoney(entry.belopEksMva)}</span>
                         </div>
                         <form action={deleteTimeEntryAction}>
@@ -699,6 +738,50 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
                           </button>
                         </form>
                       </div>
+                      {entry.approvalComment ? <p className="mt-1 text-xs text-brand-ink/70">Kommentar: {entry.approvalComment}</p> : null}
+                      {entry.approvedBy ? <p className="mt-1 text-xs text-brand-ink/70">Behandlet av {entry.approvedBy.name}</p> : null}
+
+                      {session.user.role === "ADMIN" ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {entry.approvalStatus !== TimeEntryApprovalStatus.APPROVED ? (
+                            <form action={approveTimeEntryAction}>
+                              <input type="hidden" name="timeEntryId" value={entry.id} />
+                              <input type="hidden" name="redirectTo" value={`/prosjekter/${project.id}?periodStart=${periodStartValue}#timer`} />
+                              <button type="submit" className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                Godkjenn
+                              </button>
+                            </form>
+                          ) : null}
+
+                          {entry.approvalStatus !== TimeEntryApprovalStatus.REJECTED ? (
+                            <form action={rejectTimeEntryAction} className="flex flex-wrap gap-2">
+                              <input type="hidden" name="timeEntryId" value={entry.id} />
+                              <input type="hidden" name="redirectTo" value={`/prosjekter/${project.id}?periodStart=${periodStartValue}#timer`} />
+                              <input
+                                name="comment"
+                                className="brand-input w-52 text-xs"
+                                placeholder="Arsak ved avvisning"
+                                required
+                                minLength={2}
+                                maxLength={500}
+                              />
+                              <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                                Avvis
+                              </button>
+                            </form>
+                          ) : null}
+
+                          {entry.approvalStatus !== TimeEntryApprovalStatus.PENDING ? (
+                            <form action={resetTimeEntryApprovalAction}>
+                              <input type="hidden" name="timeEntryId" value={entry.id} />
+                              <input type="hidden" name="redirectTo" value={`/prosjekter/${project.id}?periodStart=${periodStartValue}#timer`} />
+                              <button type="submit" className="rounded-lg border border-black/15 bg-white px-2.5 py-1 text-xs font-semibold">
+                                Sett ventende
+                              </button>
+                            </form>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

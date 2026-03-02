@@ -2,10 +2,16 @@ import { PurchaseOrderStatus } from "@prisma/client";
 
 import {
   adjustInventoryMaterialStockAction,
+  cancelPurchaseOrderAction,
   createInventoryMaterialAction,
   createSupplierAction,
+  deleteInventoryMaterialAction,
+  deleteSupplierAction,
   generateLowStockPurchaseOrdersAction,
-  markPurchaseOrderReceivedAction
+  markPurchaseOrderReceivedAction,
+  markPurchaseOrderSentAction,
+  updateInventoryMaterialAction,
+  updateSupplierAction
 } from "@/app/actions/material-inventory-actions";
 import { db } from "@/lib/db";
 import { getPurchaseOrderStatusColor, getPurchaseOrderStatusLabel } from "@/lib/material-inventory-meta";
@@ -27,11 +33,22 @@ function formatQuantity(value: number): string {
   return value.toLocaleString("nb-NO", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-function getSuccessMessage(value: string): string | null {
+function getSuccessMessage(value: string, countParam: string): string | null {
   if (value === "supplier-created") return "Leverandor opprettet.";
+  if (value === "supplier-updated") return "Leverandor oppdatert.";
+  if (value === "supplier-deleted") return "Leverandor slettet.";
   if (value === "material-created") return "Materiale opprettet i registeret.";
+  if (value === "material-updated") return "Materiale oppdatert.";
+  if (value === "material-deleted") return "Materiale slettet.";
   if (value === "stock-adjusted") return "Lagerbeholdning oppdatert.";
-  if (value === "po-generated") return "Innkjopsordre generert for lavlager-linjer.";
+  if (value === "po-generated") {
+    const count = Number(countParam);
+    return Number.isFinite(count) && count > 0
+      ? `Innkjopsordre generert (${count.toLocaleString("nb-NO")} stk).`
+      : "Innkjopsordre generert for lavlager-linjer.";
+  }
+  if (value === "po-sent") return "Innkjopsordre markert som sendt.";
+  if (value === "po-cancelled") return "Innkjopsordre annullert.";
   if (value === "po-received") return "Innkjopsordre markert som mottatt og lager oppdatert.";
   return null;
 }
@@ -42,7 +59,7 @@ export default async function MaterialerPage({ searchParams }: Props) {
 
   const error = toSingleValue(params.error);
   const warning = toSingleValue(params.warning);
-  const success = getSuccessMessage(toSingleValue(params.success));
+  const success = getSuccessMessage(toSingleValue(params.success), toSingleValue(params.count));
 
   const [suppliers, materials, purchaseOrders] = await Promise.all([
     db.supplier.findMany({
@@ -212,17 +229,57 @@ export default async function MaterialerPage({ searchParams }: Props) {
               <p className="mt-2 text-sm text-brand-ink/75">Ingen leverandorer opprettet enna.</p>
             ) : (
               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                {suppliers.map((supplier) => (
-                  <div key={supplier.id} className="rounded-lg border border-black/10 p-3 text-sm">
-                    <p className="font-semibold">{supplier.navn}</p>
-                    {supplier.kontaktperson ? <p className="text-brand-ink/75">Kontakt: {supplier.kontaktperson}</p> : null}
-                    {supplier.epost ? <p className="text-brand-ink/75">{supplier.epost}</p> : null}
-                    {supplier.telefon ? <p className="text-brand-ink/75">{supplier.telefon}</p> : null}
-                    <p className="mt-1 text-xs text-brand-ink/70">
-                      {supplier._count.materials} materialer | {supplier._count.purchaseOrders} innkjopsordre
-                    </p>
-                  </div>
-                ))}
+                {suppliers.map((supplier) => {
+                  const canDelete = supplier._count.materials === 0 && supplier._count.purchaseOrders === 0;
+                  return (
+                    <div key={supplier.id} className="rounded-lg border border-black/10 p-3 text-sm">
+                      <p className="font-semibold">{supplier.navn}</p>
+                      {supplier.kontaktperson ? <p className="text-brand-ink/75">Kontakt: {supplier.kontaktperson}</p> : null}
+                      {supplier.epost ? <p className="text-brand-ink/75">{supplier.epost}</p> : null}
+                      {supplier.telefon ? <p className="text-brand-ink/75">{supplier.telefon}</p> : null}
+                      <p className="mt-1 text-xs text-brand-ink/70">
+                        {supplier._count.materials} materialer | {supplier._count.purchaseOrders} innkjopsordre
+                      </p>
+
+                      <form action={updateSupplierAction} className="mt-2 space-y-2 border-t border-black/10 pt-2">
+                        <input type="hidden" name="supplierId" value={supplier.id} />
+                        <label className="block text-xs font-medium">
+                          Navn
+                          <input name="navn" className="brand-input mt-1 text-xs" required minLength={2} maxLength={120} defaultValue={supplier.navn} />
+                        </label>
+                        <label className="block text-xs font-medium">
+                          Kontaktperson
+                          <input name="kontaktperson" className="brand-input mt-1 text-xs" maxLength={120} defaultValue={supplier.kontaktperson ?? ""} />
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="block text-xs font-medium">
+                            E-post
+                            <input name="epost" type="email" className="brand-input mt-1 text-xs" maxLength={200} defaultValue={supplier.epost ?? ""} />
+                          </label>
+                          <label className="block text-xs font-medium">
+                            Telefon
+                            <input name="telefon" className="brand-input mt-1 text-xs" maxLength={50} defaultValue={supplier.telefon ?? ""} />
+                          </label>
+                        </div>
+                        <button type="submit" className="rounded-lg bg-brand-canvas px-3 py-1.5 text-xs font-semibold hover:bg-brand-canvas/80">
+                          Lagre endringer
+                        </button>
+                      </form>
+
+                      <form action={deleteSupplierAction} className="mt-2">
+                        <input type="hidden" name="supplierId" value={supplier.id} />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!canDelete}
+                        >
+                          Slett leverandor
+                        </button>
+                      </form>
+                      {!canDelete ? <p className="mt-1 text-xs text-brand-ink/70">Sletting krever 0 materialer og 0 ordre.</p> : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -236,6 +293,7 @@ export default async function MaterialerPage({ searchParams }: Props) {
                 {materials.map((material) => {
                   const lowStock = material.lagerBeholdning <= material.lavLagerGrense;
                   const enhetsSalg = material.innkjopsprisEksMva * (1 + material.standardPaslagPercent / 100);
+                  const canDelete = material._count.consumptions === 0 && material._count.purchaseOrderItems === 0;
                   return (
                     <div key={material.id} className={`rounded-xl border p-3 ${lowStock ? "border-amber-300 bg-amber-50/50" : "border-black/10"}`}>
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -260,6 +318,71 @@ export default async function MaterialerPage({ searchParams }: Props) {
                         </div>
                       </div>
 
+                      <form action={updateInventoryMaterialAction} className="mt-2 space-y-2 border-t border-black/10 pt-2">
+                        <input type="hidden" name="materialId" value={material.id} />
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="text-xs font-medium">
+                            Leverandor
+                            <select name="supplierId" className="brand-input mt-1 text-xs" required defaultValue={material.supplierId}>
+                              {suppliers.map((supplier) => (
+                                <option key={supplier.id} value={supplier.id}>
+                                  {supplier.navn}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs font-medium">
+                            Materialnavn
+                            <input name="navn" className="brand-input mt-1 text-xs" required minLength={1} maxLength={200} defaultValue={material.navn} />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-xs font-medium">
+                            Enhet
+                            <input name="enhet" className="brand-input mt-1 text-xs" required maxLength={30} defaultValue={material.enhet} />
+                          </label>
+                          <label className="text-xs font-medium">
+                            Innkjopspris eks mva
+                            <input
+                              name="innkjopsprisEksMva"
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              className="brand-input mt-1 text-xs"
+                              required
+                              defaultValue={material.innkjopsprisEksMva}
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label className="text-xs font-medium">
+                            Standard paslag %
+                            <input
+                              name="standardPaslagPercent"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="brand-input mt-1 text-xs"
+                              defaultValue={material.standardPaslagPercent}
+                            />
+                          </label>
+                          <label className="text-xs font-medium">
+                            Lavlager-grense
+                            <input
+                              name="lavLagerGrense"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="brand-input mt-1 text-xs"
+                              defaultValue={material.lavLagerGrense}
+                            />
+                          </label>
+                        </div>
+                        <button type="submit" className="rounded-lg bg-brand-canvas px-3 py-1.5 text-xs font-semibold hover:bg-brand-canvas/80">
+                          Lagre materiale
+                        </button>
+                      </form>
+
                       <form action={adjustInventoryMaterialStockAction} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)_auto]">
                         <input type="hidden" name="materialId" value={material.id} />
                         <label className="text-xs font-medium">
@@ -276,6 +399,18 @@ export default async function MaterialerPage({ searchParams }: Props) {
                           </button>
                         </div>
                       </form>
+
+                      <form action={deleteInventoryMaterialAction} className="mt-2">
+                        <input type="hidden" name="materialId" value={material.id} />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!canDelete}
+                        >
+                          Slett materiale
+                        </button>
+                      </form>
+                      {!canDelete ? <p className="mt-1 text-xs text-brand-ink/70">Sletting krever 0 forbrukslinjer og 0 ordrelinjer.</p> : null}
                     </div>
                   );
                 })}
@@ -340,13 +475,38 @@ export default async function MaterialerPage({ searchParams }: Props) {
                         </table>
                       </div>
 
-                      {order.status !== PurchaseOrderStatus.MOTTATT && order.status !== PurchaseOrderStatus.ANNULLERT ? (
-                        <form action={markPurchaseOrderReceivedAction} className="mt-2">
-                          <input type="hidden" name="purchaseOrderId" value={order.id} />
-                          <button type="submit" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                            Marker som mottatt
-                          </button>
-                        </form>
+                      {order.status === PurchaseOrderStatus.UTKAST ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <form action={markPurchaseOrderSentAction}>
+                            <input type="hidden" name="purchaseOrderId" value={order.id} />
+                            <button type="submit" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+                              Marker som sendt
+                            </button>
+                          </form>
+                          <form action={cancelPurchaseOrderAction}>
+                            <input type="hidden" name="purchaseOrderId" value={order.id} />
+                            <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                              Annuller ordre
+                            </button>
+                          </form>
+                        </div>
+                      ) : null}
+
+                      {order.status === PurchaseOrderStatus.SENDT ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <form action={markPurchaseOrderReceivedAction}>
+                            <input type="hidden" name="purchaseOrderId" value={order.id} />
+                            <button type="submit" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                              Marker som mottatt
+                            </button>
+                          </form>
+                          <form action={cancelPurchaseOrderAction}>
+                            <input type="hidden" name="purchaseOrderId" value={order.id} />
+                            <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                              Annuller ordre
+                            </button>
+                          </form>
+                        </div>
                       ) : null}
                     </div>
                   );

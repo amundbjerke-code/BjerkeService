@@ -1,8 +1,11 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { TimeEntryApprovalStatus } from "@prisma/client";
 
+import { approveTimeEntryAction, rejectTimeEntryAction, resetTimeEntryApprovalAction } from "@/app/actions/hr-actions";
 import { createTimeEntryAction } from "@/app/actions/time-entry-actions";
 import { db } from "@/lib/db";
 import { requireAuthPage } from "@/lib/rbac";
+import { getTimeEntryApprovalStatusColor, getTimeEntryApprovalStatusLabel } from "@/lib/time-entry-meta";
 import { buildPeriodOptions, formatDateInput, get14DayPeriodFromInput, shiftPeriod } from "@/lib/time-period";
 
 type Props = {
@@ -15,6 +18,9 @@ function toSingleValue(value: string | string[] | undefined): string {
 
 function getSuccessMessage(success: string): string | null {
   if (success === "time-created") return "Timer ble registrert.";
+  if (success === "time-approved") return "Timeregistrering ble godkjent.";
+  if (success === "time-rejected") return "Timeregistrering ble avvist.";
+  if (success === "time-approval-reset") return "Timegodkjenning ble nullstilt.";
   return null;
 }
 
@@ -30,6 +36,7 @@ export default async function TimerPage({ searchParams }: Props) {
   const session = await requireAuthPage();
   const params = (await searchParams) ?? {};
   const success = getSuccessMessage(toSingleValue(params.success));
+  const error = toSingleValue(params.error);
 
   const period = get14DayPeriodFromInput(toSingleValue(params.periodStart));
   const periodStartValue = formatDateInput(period.start);
@@ -69,6 +76,12 @@ export default async function TimerPage({ searchParams }: Props) {
             name: true,
             email: true
           }
+        },
+        approvedBy: {
+          select: {
+            id: true,
+            name: true
+          }
         }
       }
     })
@@ -80,10 +93,15 @@ export default async function TimerPage({ searchParams }: Props) {
       accumulator.totalAmount += entry.belopEksMva;
       if (entry.fakturerbar) {
         accumulator.billableAmount += entry.belopEksMva;
+        accumulator.billableHours += entry.timer;
+      }
+      if (entry.fakturerbar && entry.approvalStatus === TimeEntryApprovalStatus.APPROVED) {
+        accumulator.approvedBillableAmount += entry.belopEksMva;
+        accumulator.approvedBillableHours += entry.timer;
       }
       return accumulator;
     },
-    { hours: 0, totalAmount: 0, billableAmount: 0 }
+    { hours: 0, totalAmount: 0, billableAmount: 0, billableHours: 0, approvedBillableAmount: 0, approvedBillableHours: 0 }
   );
 
   return (
@@ -107,6 +125,7 @@ export default async function TimerPage({ searchParams }: Props) {
         </div>
       </div>
 
+      {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {success ? <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{success}</p> : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
@@ -195,8 +214,11 @@ export default async function TimerPage({ searchParams }: Props) {
                 <p className="mt-1 font-semibold">{formatMoney(totals.totalAmount)}</p>
               </div>
               <div className="rounded-lg bg-brand-canvas p-3">
-                <p className="text-xs uppercase text-brand-ink/70">Fakturagrunnlag</p>
-                <p className="mt-1 font-semibold">{formatMoney(totals.billableAmount)}</p>
+                <p className="text-xs uppercase text-brand-ink/70">Fakturagrunnlag (godkjent)</p>
+                <p className="mt-1 font-semibold">{formatMoney(totals.approvedBillableAmount)}</p>
+                <p className="text-xs text-brand-ink/70">
+                  {formatHours(totals.approvedBillableHours)} t av {formatHours(totals.billableHours)} fakturerbare t
+                </p>
               </div>
             </div>
           </div>
@@ -208,22 +230,75 @@ export default async function TimerPage({ searchParams }: Props) {
             ) : (
               <div className="mt-3 space-y-2">
                 {timeEntries.map((entry) => (
-                  <Link key={entry.id} href={`/prosjekter/${entry.project.id}?periodStart=${periodStartValue}#timer`} className="block rounded-xl border border-black/10 p-3 transition hover:border-brand-red/40">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium">{entry.project.navn}</p>
-                        <p className="text-xs text-brand-ink/70">{entry.user.name}</p>
+                  <div key={entry.id} className="rounded-xl border border-black/10 p-3 transition hover:border-brand-red/40">
+                    <Link href={`/prosjekter/${entry.project.id}?periodStart=${periodStartValue}#timer`} className="block">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">{entry.project.navn}</p>
+                          <p className="text-xs text-brand-ink/70">{entry.user.name}</p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p>{entry.dato.toLocaleDateString("nb-NO")}</p>
+                          <p>{formatHours(entry.timer)} t</p>
+                        </div>
                       </div>
-                      <div className="text-right text-sm">
-                        <p>{entry.dato.toLocaleDateString("nb-NO")}</p>
-                        <p>{formatHours(entry.timer)} t</p>
-                      </div>
-                    </div>
+                    </Link>
+
                     <div className="mt-2 flex items-center justify-between text-sm">
-                      <span className="rounded-full bg-brand-canvas px-2 py-1 text-xs">{entry.fakturerbar ? "Fakturerbar" : "Ikke fakturerbar"}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-brand-canvas px-2 py-1 text-xs">{entry.fakturerbar ? "Fakturerbar" : "Ikke fakturerbar"}</span>
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${getTimeEntryApprovalStatusColor(entry.approvalStatus)}`}>
+                          {getTimeEntryApprovalStatusLabel(entry.approvalStatus)}
+                        </span>
+                      </div>
                       <span className="font-semibold">{formatMoney(entry.belopEksMva)}</span>
                     </div>
-                  </Link>
+
+                    {entry.approvalComment ? <p className="mt-1 text-xs text-brand-ink/70">Kommentar: {entry.approvalComment}</p> : null}
+                    {entry.approvedBy ? <p className="mt-1 text-xs text-brand-ink/70">Behandlet av {entry.approvedBy.name}</p> : null}
+
+                    {session.user.role === "ADMIN" ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {entry.approvalStatus !== TimeEntryApprovalStatus.APPROVED ? (
+                          <form action={approveTimeEntryAction}>
+                            <input type="hidden" name="timeEntryId" value={entry.id} />
+                            <input type="hidden" name="redirectTo" value={`/timer?periodStart=${periodStartValue}`} />
+                            <button type="submit" className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                              Godkjenn
+                            </button>
+                          </form>
+                        ) : null}
+
+                        {entry.approvalStatus !== TimeEntryApprovalStatus.REJECTED ? (
+                          <form action={rejectTimeEntryAction} className="flex flex-wrap gap-2">
+                            <input type="hidden" name="timeEntryId" value={entry.id} />
+                            <input type="hidden" name="redirectTo" value={`/timer?periodStart=${periodStartValue}`} />
+                            <input
+                              name="comment"
+                              className="brand-input w-52 text-xs"
+                              placeholder="Arsak ved avvisning"
+                              required
+                              minLength={2}
+                              maxLength={500}
+                            />
+                            <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                              Avvis
+                            </button>
+                          </form>
+                        ) : null}
+
+                        {entry.approvalStatus !== TimeEntryApprovalStatus.PENDING ? (
+                          <form action={resetTimeEntryApprovalAction}>
+                            <input type="hidden" name="timeEntryId" value={entry.id} />
+                            <input type="hidden" name="redirectTo" value={`/timer?periodStart=${periodStartValue}`} />
+                            <button type="submit" className="rounded-lg border border-black/15 bg-white px-2.5 py-1 text-xs font-semibold">
+                              Sett ventende
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             )}

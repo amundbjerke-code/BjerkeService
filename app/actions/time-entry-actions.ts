@@ -1,5 +1,6 @@
 "use server";
 
+import { TimeEntryApprovalStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -105,6 +106,11 @@ export async function createTimeEntryAction(formData: FormData): Promise<void> {
     redirect("/prosjekter?error=Prosjekt%20ikke%20funnet");
   }
 
+  const employeeProfile = await db.employeeProfile.findUnique({
+    where: { userId: session.user.id },
+    select: { internKostPerTime: true }
+  });
+
   const entryDate = new Date(`${parsed.data.dato}T00:00:00`);
   const calculatedBelop = Number(((project.timeprisEksMva ?? 0) * parsed.data.timer).toFixed(2));
   const belopEksMva = parsed.data.belopEksMva ?? calculatedBelop;
@@ -117,7 +123,12 @@ export async function createTimeEntryAction(formData: FormData): Promise<void> {
       timer: parsed.data.timer,
       beskrivelse: parsed.data.beskrivelse,
       belopEksMva,
-      fakturerbar: parsed.data.fakturerbar
+      fakturerbar: parsed.data.fakturerbar,
+      internKostPerTime: employeeProfile?.internKostPerTime ?? null,
+      approvalStatus: TimeEntryApprovalStatus.PENDING,
+      approvedById: null,
+      approvedAt: null,
+      approvalComment: null
     }
   });
 
@@ -130,7 +141,9 @@ export async function createTimeEntryAction(formData: FormData): Promise<void> {
       projectId: project.id,
       timer: created.timer,
       belopEksMva: created.belopEksMva,
-      fakturerbar: created.fakturerbar
+      fakturerbar: created.fakturerbar,
+      internKostPerTime: created.internKostPerTime,
+      approvalStatus: created.approvalStatus
     }
   });
 

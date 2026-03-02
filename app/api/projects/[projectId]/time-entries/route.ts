@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TimeEntryApprovalStatus } from "@prisma/client";
 import { z } from "zod";
 
 import { logAudit } from "@/lib/audit";
@@ -93,6 +94,12 @@ export async function GET(request: Request, context: { params: Promise<{ project
           name: true,
           email: true
         }
+      },
+      approvedBy: {
+        select: {
+          id: true,
+          name: true
+        }
       }
     }
   });
@@ -128,6 +135,11 @@ export async function POST(request: Request, context: { params: Promise<{ projec
     return NextResponse.json({ error: "Prosjekt ikke funnet" }, { status: 404 });
   }
 
+  const employeeProfile = await db.employeeProfile.findUnique({
+    where: { userId: session.user.id },
+    select: { internKostPerTime: true }
+  });
+
   const belopEksMva =
     parsedBody.data.belopEksMva === null
       ? Number(((project.timeprisEksMva ?? 0) * parsedBody.data.timer).toFixed(2))
@@ -141,7 +153,12 @@ export async function POST(request: Request, context: { params: Promise<{ projec
       timer: parsedBody.data.timer,
       beskrivelse: parsedBody.data.beskrivelse,
       belopEksMva,
-      fakturerbar: parsedBody.data.fakturerbar
+      fakturerbar: parsedBody.data.fakturerbar,
+      internKostPerTime: employeeProfile?.internKostPerTime ?? null,
+      approvalStatus: TimeEntryApprovalStatus.PENDING,
+      approvedById: null,
+      approvedAt: null,
+      approvalComment: null
     }
   });
 
@@ -155,7 +172,9 @@ export async function POST(request: Request, context: { params: Promise<{ projec
       projectId: created.projectId,
       timer: created.timer,
       belopEksMva: created.belopEksMva,
-      fakturerbar: created.fakturerbar
+      fakturerbar: created.fakturerbar,
+      internKostPerTime: created.internKostPerTime,
+      approvalStatus: created.approvalStatus
     }
   });
 

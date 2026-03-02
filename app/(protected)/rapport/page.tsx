@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TimeEntryApprovalStatus } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { getProjectBillingTypeLabel } from "@/lib/project-meta";
@@ -20,6 +21,14 @@ type FinanceGroupByRow = {
   };
 };
 
+type TimeTotals = {
+  hours: number;
+  amount: number;
+  cost: number;
+  approvedBillableAmount: number;
+  entryCount: number;
+};
+
 function toSingleValue(value: string | string[] | undefined): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -30,6 +39,13 @@ function formatMoney(amount: number): string {
 
 function formatHours(value: number): string {
   return value.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function getTimeCost(timer: number, belopEksMva: number, internKostPerTime: number | null): number {
+  if (typeof internKostPerTime === "number") {
+    return Number((timer * internKostPerTime).toFixed(2));
+  }
+  return belopEksMva;
 }
 
 function getFinanceTotalsByProject(sums: FinanceGroupByRow[]): Map<string, { expenses: number; surcharges: number; entryCount: number }> {
@@ -50,6 +66,39 @@ function getFinanceTotalsByProject(sums: FinanceGroupByRow[]): Map<string, { exp
   return totals;
 }
 
+function getTimeTotalsByProject(
+  entries: Array<{
+    projectId: string;
+    timer: number;
+    belopEksMva: number;
+    fakturerbar: boolean;
+    approvalStatus: TimeEntryApprovalStatus;
+    internKostPerTime: number | null;
+  }>
+): Map<string, TimeTotals> {
+  const totals = new Map<string, TimeTotals>();
+
+  for (const entry of entries) {
+    const current = totals.get(entry.projectId) ?? {
+      hours: 0,
+      amount: 0,
+      cost: 0,
+      approvedBillableAmount: 0,
+      entryCount: 0
+    };
+    current.hours += entry.timer;
+    current.amount += entry.belopEksMva;
+    current.cost += getTimeCost(entry.timer, entry.belopEksMva, entry.internKostPerTime);
+    current.entryCount += 1;
+    if (entry.fakturerbar && entry.approvalStatus === TimeEntryApprovalStatus.APPROVED) {
+      current.approvedBillableAmount += entry.belopEksMva;
+    }
+    totals.set(entry.projectId, current);
+  }
+
+  return totals;
+}
+
 export default async function RapportPage({ searchParams }: Props) {
   await requireAuthPage();
   const params = (await searchParams) ?? {};
@@ -60,34 +109,21 @@ export default async function RapportPage({ searchParams }: Props) {
   const previousPeriod = shiftPeriod(period, -1);
   const nextPeriod = shiftPeriod(period, 1);
 
-  const [periodTimeSums, periodBillableTimeSums, periodFinanceSums] = await Promise.all([
-    db.timeEntry.groupBy({
-      by: ["projectId"],
+  const [periodTimeEntries, periodFinanceSums] = await Promise.all([
+    db.timeEntry.findMany({
       where: {
         dato: {
           gte: period.start,
           lt: period.endExclusive
         }
       },
-      _sum: {
+      select: {
+        projectId: true,
         timer: true,
-        belopEksMva: true
-      },
-      _count: {
-        _all: true
-      }
-    }),
-    db.timeEntry.groupBy({
-      by: ["projectId"],
-      where: {
-        dato: {
-          gte: period.start,
-          lt: period.endExclusive
-        },
-        fakturerbar: true
-      },
-      _sum: {
-        belopEksMva: true
+        belopEksMva: true,
+        fakturerbar: true,
+        approvalStatus: true,
+        internKostPerTime: true
       }
     }),
     db.projectFinanceEntry.groupBy({
@@ -108,15 +144,15 @@ export default async function RapportPage({ searchParams }: Props) {
   ]);
 
   const projectIdSet = new Set<string>();
-  for (const sum of periodTimeSums) {
-    projectIdSet.add(sum.projectId);
+  for (const entry of periodTimeEntries) {
+    projectIdSet.add(entry.projectId);
   }
   for (const sum of periodFinanceSums) {
     projectIdSet.add(sum.projectId);
   }
   const projectIds = [...projectIdSet];
 
-  const [projects, totalTimeCostSums, totalFinanceSums] = projectIds.length
+  const [projects, totalTimeEntries, totalFinanceSums] = projectIds.length
     ? await Promise.all([
         db.project.findMany({
           where: { id: { in: projectIds } },
@@ -128,11 +164,15 @@ export default async function RapportPage({ searchParams }: Props) {
             fastprisBelopEksMva: true
           }
         }),
-        db.timeEntry.groupBy({
-          by: ["projectId"],
+        db.timeEntry.findMany({
           where: { projectId: { in: projectIds } },
-          _sum: {
-            belopEksMva: true
+          select: {
+            projectId: true,
+            timer: true,
+            belopEksMva: true,
+            fakturerbar: true,
+            approvalStatus: true,
+            internKostPerTime: true
           }
         }),
         db.projectFinanceEntry.groupBy({
@@ -149,10 +189,9 @@ export default async function RapportPage({ searchParams }: Props) {
     : [[], [], []];
 
   const projectById = new Map(projects.map((project) => [project.id, project]));
-  const periodTimeByProject = new Map(periodTimeSums.map((sum) => [sum.projectId, sum]));
-  const periodBillableByProject = new Map(periodBillableTimeSums.map((sum) => [sum.projectId, sum._sum.belopEksMva ?? 0]));
+  const periodTimeByProject = getTimeTotalsByProject(periodTimeEntries);
   const periodFinanceByProject = getFinanceTotalsByProject(periodFinanceSums as FinanceGroupByRow[]);
-  const totalTimeCostByProject = new Map(totalTimeCostSums.map((sum) => [sum.projectId, sum._sum.belopEksMva ?? 0]));
+  const totalTimeByProject = getTimeTotalsByProject(totalTimeEntries);
   const totalFinanceByProject = getFinanceTotalsByProject(totalFinanceSums as FinanceGroupByRow[]);
 
   const rows = projectIds
@@ -162,25 +201,25 @@ export default async function RapportPage({ searchParams }: Props) {
         return null;
       }
 
-      const periodTime = periodTimeByProject.get(projectId);
+      const periodTime = periodTimeByProject.get(projectId) ?? { hours: 0, amount: 0, cost: 0, approvedBillableAmount: 0, entryCount: 0 };
       const periodFinance = periodFinanceByProject.get(projectId) ?? { expenses: 0, surcharges: 0, entryCount: 0 };
+      const totalTime = totalTimeByProject.get(projectId) ?? { hours: 0, amount: 0, cost: 0, approvedBillableAmount: 0, entryCount: 0 };
       const totalFinance = totalFinanceByProject.get(projectId) ?? { expenses: 0, surcharges: 0, entryCount: 0 };
-      const periodAmount = periodTime?._sum.belopEksMva ?? 0;
-      const periodHours = periodTime?._sum.timer ?? 0;
-      const periodBillableTime = periodBillableByProject.get(projectId) ?? 0;
-      const invoiceNow = periodBillableTime + periodFinance.surcharges;
-      const periodCost = periodAmount + periodFinance.expenses;
+      const invoiceNow = periodTime.approvedBillableAmount + periodFinance.surcharges;
+      const periodCost = periodTime.cost + periodFinance.expenses;
       const periodResult = invoiceNow - periodCost;
-      const totalCost = (totalTimeCostByProject.get(projectId) ?? 0) + totalFinance.expenses;
+      const totalCost = totalTime.cost + totalFinance.expenses;
       const totalFastprisBase = (project.fastprisBelopEksMva ?? 0) + totalFinance.surcharges;
 
       return {
         project,
-        periodAmount,
-        periodHours,
+        periodHours: periodTime.hours,
+        periodAmount: periodTime.amount,
+        periodCost,
+        periodApprovedBillable: periodTime.approvedBillableAmount,
         periodSurcharges: periodFinance.surcharges,
         periodExpenses: periodFinance.expenses,
-        timeEntryCount: periodTime?._count._all ?? 0,
+        timeEntryCount: periodTime.entryCount,
         financeEntryCount: periodFinance.entryCount,
         invoiceNow,
         periodResult,
@@ -193,6 +232,8 @@ export default async function RapportPage({ searchParams }: Props) {
 
   const totalHours = rows.reduce((sum, row) => sum + row.periodHours, 0);
   const totalAmount = rows.reduce((sum, row) => sum + row.periodAmount, 0);
+  const totalPeriodCost = rows.reduce((sum, row) => sum + row.periodCost, 0);
+  const totalApprovedBillable = rows.reduce((sum, row) => sum + row.periodApprovedBillable, 0);
   const totalSurcharges = rows.reduce((sum, row) => sum + row.periodSurcharges, 0);
   const totalExpenses = rows.reduce((sum, row) => sum + row.periodExpenses, 0);
   const totalInvoiceNow = rows.reduce((sum, row) => sum + row.invoiceNow, 0);
@@ -206,7 +247,7 @@ export default async function RapportPage({ searchParams }: Props) {
           <div>
             <h1 className="text-xl font-bold text-brand-ink">Fakturer naa</h1>
             <p className="mt-2 text-sm text-brand-ink/80">
-              Summer per prosjekt for valgt 14-dagersperiode. Fakturer naa = fakturerbare timer + tillegg.
+              Summer per prosjekt for valgt 14-dagersperiode. Fakturer naa = godkjente fakturerbare timer + tillegg.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-sm">
@@ -252,7 +293,7 @@ export default async function RapportPage({ searchParams }: Props) {
           </form>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg bg-brand-canvas p-3">
             <p className="text-xs uppercase text-brand-ink/70">Timer</p>
             <p className="mt-1 font-semibold">{formatHours(totalHours)} t</p>
@@ -260,6 +301,14 @@ export default async function RapportPage({ searchParams }: Props) {
           <div className="rounded-lg bg-brand-canvas p-3">
             <p className="text-xs uppercase text-brand-ink/70">Belop tid (alle)</p>
             <p className="mt-1 font-semibold">{formatMoney(totalAmount)}</p>
+          </div>
+          <div className="rounded-lg bg-brand-canvas p-3">
+            <p className="text-xs uppercase text-brand-ink/70">Kost tid (intern)</p>
+            <p className="mt-1 font-semibold">{formatMoney(totalPeriodCost - totalExpenses)}</p>
+          </div>
+          <div className="rounded-lg bg-brand-canvas p-3">
+            <p className="text-xs uppercase text-brand-ink/70">Godkjent fakturerbar tid</p>
+            <p className="mt-1 font-semibold">{formatMoney(totalApprovedBillable)}</p>
           </div>
           <div className="rounded-lg bg-brand-canvas p-3">
             <p className="text-xs uppercase text-brand-ink/70">Tillegg</p>
@@ -289,7 +338,7 @@ export default async function RapportPage({ searchParams }: Props) {
           <p className="mt-2 text-sm text-brand-ink/75">Ingen tids- eller okonomiposter i valgt periode.</p>
         ) : (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[1220px] text-left text-sm">
+            <table className="w-full min-w-[1280px] text-left text-sm">
               <thead className="bg-brand-canvas text-xs uppercase tracking-wider text-brand-ink/70">
                 <tr>
                   <th className="px-3 py-2">Prosjekt</th>
@@ -298,8 +347,8 @@ export default async function RapportPage({ searchParams }: Props) {
                   <th className="px-3 py-2">Okonomiposter</th>
                   <th className="px-3 py-2">Timer</th>
                   <th className="px-3 py-2">Belop tid (alle)</th>
-                  <th className="px-3 py-2">Tillegg</th>
-                  <th className="px-3 py-2">Utgifter</th>
+                  <th className="px-3 py-2">Godkjent fakturerbar tid</th>
+                  <th className="px-3 py-2">Kost (intern + utgifter)</th>
                   <th className="px-3 py-2">Fakturer naa</th>
                   <th className="px-3 py-2">Resultat</th>
                   <th className="px-3 py-2">Fastpris-forbruk</th>
@@ -325,8 +374,8 @@ export default async function RapportPage({ searchParams }: Props) {
                       <td className="px-3 py-2">{row.financeEntryCount}</td>
                       <td className="px-3 py-2">{formatHours(row.periodHours)} t</td>
                       <td className="px-3 py-2">{formatMoney(row.periodAmount)}</td>
-                      <td className="px-3 py-2 text-emerald-700">{formatMoney(row.periodSurcharges)}</td>
-                      <td className="px-3 py-2 text-red-700">{formatMoney(row.periodExpenses)}</td>
+                      <td className="px-3 py-2">{formatMoney(row.periodApprovedBillable)}</td>
+                      <td className="px-3 py-2 text-red-700">{formatMoney(row.periodCost)}</td>
                       <td className="px-3 py-2 font-semibold">{formatMoney(row.invoiceNow)}</td>
                       <td className={`px-3 py-2 font-semibold ${row.periodResult >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatMoney(row.periodResult)}

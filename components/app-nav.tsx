@@ -39,8 +39,9 @@ function navClassName(active: boolean, compact = false): string {
 
 export function AppNav({ role }: { role: UserRole }) {
   const pathname = usePathname();
-  const desktopItems = role === "ADMIN" ? [...baseItems, { href: "/admin/users", label: "Brukere", shortLabel: "Admin" }] : baseItems;
-  const mobileItems = baseItems;
+  const adminItem = { href: "/admin/users", label: "Ansatte", shortLabel: "HR" } as const;
+  const desktopItems = role === "ADMIN" ? [...baseItems, adminItem] : baseItems;
+  const mobileItems = role === "ADMIN" ? [...baseItems, adminItem] : baseItems;
 
   return (
     <>

@@ -61,6 +61,12 @@ export async function GET(request: Request, context: { params: Promise<{ timeEnt
           name: true,
           email: true
         }
+      },
+      approvedBy: {
+        select: {
+          id: true,
+          name: true
+        }
       }
     }
   });
@@ -92,12 +98,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ timeE
     return NextResponse.json({ error: "Ugyldig payload", issues: parsedBody.error.flatten() }, { status: 400 });
   }
 
+  const existing = await db.timeEntry.findUnique({
+    where: { id: parsedParams.data.timeEntryId },
+    select: { id: true, approvalStatus: true, projectId: true }
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Timeregistrering ikke funnet" }, { status: 404 });
+  }
+
   const data: {
     dato?: Date;
     timer?: number;
     beskrivelse?: string | null;
     belopEksMva?: number;
     fakturerbar?: boolean;
+    approvalStatus?: "PENDING";
+    approvedById?: null;
+    approvedAt?: null;
+    approvalComment?: null;
   } = {};
 
   if (parsedBody.data.dato) {
@@ -116,8 +134,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ timeE
     data.fakturerbar = parsedBody.data.fakturerbar;
   }
 
+  const hasMutatingChanges =
+    typeof parsedBody.data.dato === "string" ||
+    typeof parsedBody.data.timer === "number" ||
+    typeof parsedBody.data.beskrivelse !== "undefined" ||
+    typeof parsedBody.data.belopEksMva === "number" ||
+    typeof parsedBody.data.fakturerbar === "boolean";
+
+  if (hasMutatingChanges && existing.approvalStatus !== "PENDING") {
+    data.approvalStatus = "PENDING";
+    data.approvedById = null;
+    data.approvedAt = null;
+    data.approvalComment = null;
+  }
+
   const updated = await db.timeEntry.update({
-    where: { id: parsedParams.data.timeEntryId },
+    where: { id: existing.id },
     data
   });
 
@@ -131,7 +163,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ timeE
       projectId: updated.projectId,
       timer: updated.timer,
       belopEksMva: updated.belopEksMva,
-      fakturerbar: updated.fakturerbar
+      fakturerbar: updated.fakturerbar,
+      approvalStatus: updated.approvalStatus
     }
   });
 
