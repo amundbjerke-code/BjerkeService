@@ -1,7 +1,7 @@
 "use server";
 
 import { AbsenceType, Role, TimeEntryApprovalStatus } from "@prisma/client";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
 import { logAudit } from "@/lib/audit";
@@ -246,6 +246,7 @@ export async function upsertEmployeeProfileAction(formData: FormData): Promise<v
 
     redirect("/admin/users?success=employee-profile-saved");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/admin/users?error=Klarte%20ikke%20a%20lagre%20ansattprofil");
   }
@@ -298,6 +299,7 @@ export async function createEmployeeAbsenceAction(formData: FormData): Promise<v
 
     redirect("/admin/users?success=absence-created");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/admin/users?error=Klarte%20ikke%20a%20lagre%20fravaer");
   }
@@ -344,6 +346,7 @@ export async function deleteEmployeeAbsenceAction(formData: FormData): Promise<v
 
     redirect("/admin/users?success=absence-deleted");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/admin/users?error=Klarte%20ikke%20a%20slette%20fravaer");
   }
@@ -394,6 +397,7 @@ export async function createEmployeeCertificateAction(formData: FormData): Promi
 
     redirect(appendQueryParam(redirectPath, "success", "certificate-created"));
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect(appendQueryParam(redirectPath, "error", "Klarte ikke a lagre sertifikat"));
   }
@@ -445,6 +449,7 @@ export async function deleteEmployeeCertificateAction(formData: FormData): Promi
 
     redirect(appendQueryParam(redirectPath, "success", "certificate-deleted"));
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect(appendQueryParam(redirectPath, "error", "Klarte ikke a slette sertifikat"));
   }
@@ -524,6 +529,7 @@ export async function bulkApprovePendingTimeEntriesAction(formData: FormData): P
     const successWithCode = appendQueryParam(redirectPath, "success", "time-bulk-approved");
     redirect(appendQueryParam(successWithCode, "count", String(updated.count)));
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect(appendQueryParam(redirectPath, "error", "Klarte ikke a bulk-godkjenne timer"));
   }
@@ -543,11 +549,11 @@ async function updateTimeApprovalAction(
   const fallbackRedirect = "/timer";
   const redirectPath = safeRedirectPath(parsed.success ? parsed.data.redirectTo : null, fallbackRedirect);
   if (!parsed.success) {
-    redirect(appendQueryParam(redirectPath, "error", "Ugyldig%20timegodkjenning"));
+    redirect(appendQueryParam(redirectPath, "error", "Ugyldig timegodkjenning"));
   }
 
   if (mode === "reject" && !parsed.data.comment) {
-    redirect(appendQueryParam(redirectPath, "error", "Legg%20inn%20en%20kommentar%20for%20avvisning"));
+    redirect(appendQueryParam(redirectPath, "error", "Legg inn en kommentar for avvisning"));
   }
 
   try {
@@ -561,7 +567,7 @@ async function updateTimeApprovalAction(
     });
 
     if (!existing) {
-      redirect(appendQueryParam(redirectPath, "error", "Timeregistrering%20ikke%20funnet"));
+      redirect(appendQueryParam(redirectPath, "error", "Timeregistrering ikke funnet"));
     }
 
     const nextStatus =
@@ -597,8 +603,9 @@ async function updateTimeApprovalAction(
     const successCode = mode === "approve" ? "time-approved" : mode === "reject" ? "time-rejected" : "time-approval-reset";
     redirect(appendQueryParam(redirectPath, "success", successCode));
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
-    redirect(appendQueryParam(redirectPath, "error", "Klarte%20ikke%20a%20oppdatere%20timegodkjenning"));
+    redirect(appendQueryParam(redirectPath, "error", "Klarte ikke a oppdatere timegodkjenning"));
   }
 }
 

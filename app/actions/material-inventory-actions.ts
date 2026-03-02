@@ -1,7 +1,7 @@
 "use server";
 
 import { PurchaseOrderStatus } from "@prisma/client";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
 import { logAudit } from "@/lib/audit";
@@ -165,6 +165,7 @@ export async function createSupplierAction(formData: FormData): Promise<void> {
 
     redirect("/materialer?success=supplier-created");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20opprette%20leverandor");
   }
@@ -233,6 +234,7 @@ export async function updateSupplierAction(formData: FormData): Promise<void> {
 
     redirect("/materialer?success=supplier-updated");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20oppdatere%20leverandor");
   }
@@ -287,6 +289,7 @@ export async function deleteSupplierAction(formData: FormData): Promise<void> {
 
     redirect("/materialer?success=supplier-deleted");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20slette%20leverandor");
   }
@@ -335,6 +338,7 @@ export async function createInventoryMaterialAction(formData: FormData): Promise
 
     redirect("/materialer?success=material-created");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20opprette%20materiale");
   }
@@ -406,6 +410,7 @@ export async function updateInventoryMaterialAction(formData: FormData): Promise
 
     redirect("/materialer?success=material-updated");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20oppdatere%20materiale");
   }
@@ -460,6 +465,7 @@ export async function deleteInventoryMaterialAction(formData: FormData): Promise
 
     redirect("/materialer?success=material-deleted");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20slette%20materiale");
   }
@@ -519,6 +525,7 @@ export async function adjustInventoryMaterialStockAction(formData: FormData): Pr
 
     redirect("/materialer?success=stock-adjusted");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20justere%20lager");
   }
@@ -616,6 +623,7 @@ export async function createProjectMaterialConsumptionAction(formData: FormData)
 
     redirect(`/prosjekter/${parsed.data.projectId}?success=material-consumption-created#materialer`);
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect(`/prosjekter/${parsed.data.projectId}?error=Klarte%20ikke%20a%20registrere%20materialforbruk#materialer`);
   }
@@ -710,6 +718,7 @@ export async function generateLowStockPurchaseOrdersAction(): Promise<void> {
 
     redirect(`/materialer?success=po-generated&count=${orderCount}`);
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20generere%20innkjopsordre");
   }
@@ -766,6 +775,7 @@ export async function markPurchaseOrderSentAction(formData: FormData): Promise<v
 
     redirect("/materialer?success=po-sent");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20oppdatere%20ordrestatus");
   }
@@ -818,6 +828,7 @@ export async function cancelPurchaseOrderAction(formData: FormData): Promise<voi
 
     redirect("/materialer?success=po-cancelled");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20oppdatere%20ordrestatus");
   }
@@ -889,7 +900,10 @@ export async function markPurchaseOrderReceivedAction(formData: FormData): Promi
 
     redirect("/materialer?success=po-received");
   } catch (error) {
+    unstable_rethrow(error);
     console.error(error);
     redirect("/materialer?error=Klarte%20ikke%20a%20motta%20innkjopsordre");
   }
 }
+
+
