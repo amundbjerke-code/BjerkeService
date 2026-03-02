@@ -10,6 +10,7 @@
 - Bolge 9 (Avansert okonomi-dashboard) er implementert.
 - Bolge 10 (Ansattmodul / HR Light) er implementert.
 - Bolge 11 (Bulk-godkjenning + sertifikatvarsling) er implementert.
+- Bolge 12 (Planlegging & Ressursstyring) er implementert.
 
 ## Levert i Bolge 8
 - Eget materialregister med:
@@ -83,6 +84,23 @@
   - Varselpanel for utlopte/utlopende sertifikater (30 dager)
   - Statusmerking per sertifikat pa ansattkort (`utlopt`, `utloper i dag`, `utloper snart`, `gyldig`)
 
+## Levert i Bolge 12 (2026-03-02)
+- Ny modul `/planlegging` (admin):
+  - Kalender med ansatte (rader) og datoer (kolonner)
+  - Prosjektkort som kan dras inn i kalenderen for a opprette bemanningslinjer
+  - Eksisterende bemanningslinjer kan dras mellom ansatte/datoer
+  - Timer pa bemanningslinjer kan justeres direkte i kalenderen
+- Kapasitet og varsel:
+  - Kapasitetsoversikt fremover per dag (booket vs kapasitet)
+  - Overbooking-varsel med liste over overbookede ansatt-dager
+  - Fravaer tas med i kapasitetsberegningen
+- Automatisk bemanningsforslag:
+  - API som beregner forslag basert pa prosjektstorrelse og tilgjengelig kapasitet
+  - Stotte for preview og direkte innlegging av forslag i plan
+- Datamodell/API:
+  - Ny tabell `ProjectStaffingAssignment`
+  - Nye API-endepunkter under `/api/planning/*`
+
 ## Viktige filer endret i dag
 - prisma/schema.prisma
 - prisma/migrations/20260302110000_wave8_material_inventory/migration.sql
@@ -127,11 +145,25 @@
 - README.md
 - SESSION_HANDOFF.md
 
+## Viktige filer endret i Bolge 12
+- prisma/schema.prisma
+- prisma/migrations/20260302225000_wave12_planning_resource_management/migration.sql
+- lib/planning.ts
+- app/(protected)/planlegging/page.tsx
+- components/planning-board.tsx
+- app/api/planning/assignments/route.ts
+- app/api/planning/assignments/[assignmentId]/route.ts
+- app/api/planning/suggestions/route.ts
+- components/app-nav.tsx
+- README.md
+- SESSION_HANDOFF.md
+
 ## Migrasjon / DB
 - Ny migrasjon lagt til og kjort:
   - `20260302110000_wave8_material_inventory`
   - `20260302184050_wave10_hr_light`
   - `20260302211000_wave11_bulk_approval_and_certificate_alerts`
+  - `20260302225000_wave12_planning_resource_management`
 - Prisma client regenerert.
 
 ## Verifisering kjort
@@ -151,12 +183,16 @@
 - npm.cmd run prisma:generate (Bolge 11)
 - .\\node_modules\\.bin\\tsc.cmd --noEmit (Bolge 11)
 - npm.cmd run build (Bolge 11)
+- npm.cmd run prisma:migrate (Bolge 12)
+- npm.cmd run prisma:generate (Bolge 12)
+- .\\node_modules\\.bin\\tsc.cmd --noEmit (Bolge 12)
+- npm.cmd run build (Bolge 12)
 
 ## Drift
 - Dev-server er ikke startet i denne sesjonen.
 - Start med: `npm.cmd run dev`
 
 ## Neste naturlige steg
-1. Legg til bulk-avvisning med krav om felles kommentar (samme filtre som bulk-godkjenning).
-2. Legg til redigering av eksisterende sertifikater (navn, dato, notat).
-3. Legg til automatisk varsel per e-post/slack for sertifikater som utloper innen 30 dager.
+1. Legg til ukevis kopiering av planlinjer (f.eks. "kopier denne uken til neste uke").
+2. Legg til filter for prosjekt/ansatt i planleggingstabellen for raskere daglig bruk.
+3. Legg til eksport av plan (CSV/PDF) for montorplan per uke.

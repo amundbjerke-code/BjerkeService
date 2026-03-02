@@ -126,6 +126,8 @@ model User {
   absences                  EmployeeAbsence[]    @relation("EmployeeAbsences")
   absenceEntriesCreated     EmployeeAbsence[]    @relation("AbsenceCreatedBy")
   certificates              EmployeeCertificate[]
+  staffingAssignments       ProjectStaffingAssignment[] @relation("StaffingAssignmentEmployee")
+  staffingAssignmentsCreated ProjectStaffingAssignment[] @relation("StaffingAssignmentCreatedBy")
 }
 
 model Account {
@@ -223,11 +225,31 @@ model Project {
   offer                Offer?                 @relation("OfferToProject")
   financeEntries       ProjectFinanceEntry[]
   materialConsumptions ProjectMaterialConsumption[]
+  staffingAssignments  ProjectStaffingAssignment[]
 
   @@index([customerId])
   @@index([status])
   @@index([navn])
   @@index([billingType])
+}
+
+model ProjectStaffingAssignment {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation("StaffingAssignmentEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  dato        DateTime
+  timer       Float
+  createdById String
+  createdBy   User     @relation("StaffingAssignmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([dato])
+  @@index([createdById])
 }
 
 model Supplier {

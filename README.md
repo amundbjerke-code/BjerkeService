@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-11 status
+## Bolge 1-12 status
 
 Ferdig i denne leveransen:
 
@@ -75,6 +75,12 @@ Ferdig i denne leveransen:
   - Dashboard-varsel for andel ventende fakturerbart grunnlag
   - Egen sertifikatlogg med gyldig-til dato (`EmployeeCertificate`)
   - Varsel pa HR-siden for utlopte/utlopende sertifikater (30 dagers vindu)
+- Planlegging & Ressursstyring (Bolge 12):
+  - Ny side `/planlegging` med kalender for prosjekter og ansatte
+  - Dra-og-slipp planlegging av bemanningslinjer per ansatt og dato
+  - Kapasitetsvisning fremover per dag (booket vs tilgjengelig)
+  - Overbooking-varsel med liste over overbookede ansatt-dager
+  - Automatisk forslag til bemanning basert pa prosjektstorrelse + tilgjengelig kapasitet
 
 ## Tilgangsvalg
 
@@ -106,7 +112,7 @@ Datamodellen er forberedt for senere internkost-modell:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-11)
+## Datamodell (Bolge 1-12)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -121,6 +127,7 @@ Kjernetabeller:
 - `EmployeeProfile`
 - `EmployeeAbsence`
 - `EmployeeCertificate`
+- `ProjectStaffingAssignment`
 - `ChecklistTemplate`
 - `ChecklistTemplateItem`
 - `ProjectChecklist`
@@ -174,6 +181,13 @@ Timer/okonomi:
 - `GET /api/time-entries/:timeEntryId`
 - `PATCH /api/time-entries/:timeEntryId`
 - `DELETE /api/time-entries/:timeEntryId`
+
+Planlegging:
+
+- `POST /api/planning/assignments`
+- `PATCH /api/planning/assignments/:assignmentId`
+- `DELETE /api/planning/assignments/:assignmentId`
+- `POST /api/planning/suggestions`
 
 Tilbud:
 
