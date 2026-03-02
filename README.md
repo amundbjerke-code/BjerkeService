@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-5 status
+## Bolge 1-6 status
 
 Ferdig i denne leveransen:
 
@@ -33,13 +33,27 @@ Ferdig i denne leveransen:
   - Belop kan auto-beregnes fra prosjekt-timepris og overstyres manuelt
   - Prosjektside viser timer per 14-dagersperiode med summering
   - Fastpris-forbruk vises mot fastprisbelop
-  - Rapportside "Fakturer naa" viser summer per prosjekt for valgt 14-dagersperiode
+  - Rapportside "Fakturer naa" viser aggregert per prosjekt/periode (timer + tillegg/utgifter)
+- Tilbud/kalkulasjon (Bolge 6):
+  - Tilbudstyper: `FASTPRIS` og `TIMEBASERT`
+  - Kalkyle med timeestimat, materialkost, paslag %, risiko-buffer % og mva %
+  - Statusflyt: `UTKAST -> SENDT -> GODKJENT -> AVVIST`
+  - Godkjent tilbud konverteres automatisk til prosjekt
+  - Endringshistorikk per tilbud (inkludert statusendringer og konvertering)
+  - PDF-generering med logo, kundeinfo, spesifikasjon og totaler eks/inkl mva
+- Prosjektokonomi (tillegg):
+  - Registrer `UTGIFT` pa prosjekt (materialkjop, maskinleie osv.)
+  - Registrer `TILLEGG` pa prosjekt (uforutsette tillegg i jobb)
+  - Rediger/slett eksisterende okonomiposter direkte pa prosjektsiden
+  - Lonnsomhet vises pa prosjektsiden med resultat eks mva (pluss/minus)
+  - Stottes for bade `FASTPRIS` og `TIME`-prosjekter
 
 ## Tilgangsvalg
 
 Prosjekt-, sjekkliste- og timer-tilgang er satt til default policy:
 
 - Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan se alle prosjekter og registrere timer.
+- Alle innloggede brukere (`ADMIN` og `EMPLOYEE`) kan opprette og administrere tilbud.
 
 Dette er valgt fordi prosjekt-eierskap ikke er modellert enna.
 
@@ -62,7 +76,7 @@ Datamodellen er forberedt for senere internkost-modell:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-5)
+## Datamodell (Bolge 1-6)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -79,6 +93,10 @@ Kjernetabeller:
 - `ProjectChecklist`
 - `ProjectChecklistItem`
 - `ChecklistItemAttachment`
+- `Offer`
+- `OfferSpecificationItem`
+- `OfferHistory`
+- `ProjectFinanceEntry`
 
 ## API-endepunkter
 
@@ -118,6 +136,15 @@ Timer/okonomi:
 - `GET /api/time-entries/:timeEntryId`
 - `PATCH /api/time-entries/:timeEntryId`
 - `DELETE /api/time-entries/:timeEntryId`
+
+Tilbud:
+
+- `GET /api/offers`
+- `POST /api/offers`
+- `GET /api/offers/:offerId`
+- `PATCH /api/offers/:offerId` (kun `UTKAST`)
+- `POST /api/offers/:offerId/status` (statusflyt)
+- `GET /api/offers/:offerId/pdf` (PDF)
 
 ## Vedleggslagring
 

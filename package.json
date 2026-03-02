@@ -14,11 +14,14 @@
   "dependencies": {
     "@auth/prisma-adapter": "^2.8.0",
     "@prisma/client": "^6.4.1",
+    "@types/pdfkit": "^0.17.5",
     "bcryptjs": "^2.4.3",
     "next": "^15.1.0",
     "next-auth": "^5.0.0-beta.25",
+    "pdfkit": "^0.17.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "svg-to-pdfkit": "^0.1.8",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -36,6 +39,3 @@
     "seed": "tsx prisma/seed.ts"
   }
 }
-
-
-

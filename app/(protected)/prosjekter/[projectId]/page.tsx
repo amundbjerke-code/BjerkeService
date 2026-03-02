@@ -1,13 +1,19 @@
 ﻿import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { createAvvikAction } from "@/app/actions/avvik-actions";
 import {
   createProjectChecklistFromScratchAction,
   createProjectChecklistFromTemplateAction
 } from "@/app/actions/checklist-actions";
+import { createMaterialAction, deleteMaterialAction, updateMaterialStatusAction } from "@/app/actions/material-actions";
+import { createProjectFinanceEntryAction, deleteProjectFinanceEntryAction, updateProjectFinanceEntryAction } from "@/app/actions/project-finance-actions";
 import { deleteProjectAction, updateProjectAction } from "@/app/actions/project-actions";
 import { createTimeEntryAction, deleteTimeEntryAction } from "@/app/actions/time-entry-actions";
+import { avvikAlvorlighetsgradOptions, getAvvikAlvorlighetsgradColor, getAvvikAlvorlighetsgradLabel, getAvvikStatusColor, getAvvikStatusLabel } from "@/lib/avvik-meta";
 import { db } from "@/lib/db";
+import { getMaterialStatusColor, getMaterialStatusLabel, materialStatusOptions } from "@/lib/material-meta";
+import { getProjectFinanceEntryTypeColor, getProjectFinanceEntryTypeLabel, projectFinanceEntryTypeOptions } from "@/lib/project-finance-meta";
 import { getProjectBillingTypeLabel, getProjectStatusLabel, projectBillingTypeOptions, projectStatusOptions } from "@/lib/project-meta";
 import { requireAuthPage } from "@/lib/rbac";
 import { buildPeriodOptions, formatDateInput, get14DayPeriodFromInput, shiftPeriod } from "@/lib/time-period";
@@ -26,6 +32,20 @@ function getSuccessMessage(success: string): string | null {
   if (success === "updated") return "Prosjektet ble oppdatert.";
   if (success === "time-created") return "Timer ble registrert.";
   if (success === "time-deleted") return "Timeregistrering ble slettet.";
+  if (success === "avvik-created") return "Avvik ble registrert.";
+  if (success === "avvik-deleted") return "Avvik ble slettet.";
+  if (success === "material-created") return "Material ble lagt til.";
+  if (success === "material-updated") return "Materialstatus ble oppdatert.";
+  if (success === "material-deleted") return "Material ble slettet.";
+  if (success === "finance-created") return "Okonomipost ble lagt til.";
+  if (success === "finance-updated") return "Okonomipost ble oppdatert.";
+  if (success === "finance-deleted") return "Okonomipost ble slettet.";
+  return null;
+}
+
+function nextMaterialStatus(current: string): string | null {
+  if (current === "TRENGS") return "BESTILT";
+  if (current === "BESTILT") return "MOTTATT";
   return null;
 }
 
@@ -55,6 +75,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
 
   const error = toSingleValue(resolvedSearchParams.error);
   const success = getSuccessMessage(toSingleValue(resolvedSearchParams.success));
+  const warning = toSingleValue(resolvedSearchParams.warning);
 
   const activePeriod = get14DayPeriodFromInput(toSingleValue(resolvedSearchParams.periodStart));
   const periodStartValue = formatDateInput(activePeriod.start);
@@ -63,7 +84,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const nextPeriod = shiftPeriod(activePeriod, 1);
   const todayValue = formatDateInput(new Date());
 
-  const [project, customers, templates, periodTimeEntries, totalTimeSummary] = await Promise.all([
+  const [project, customers, templates, periodTimeEntries, totalTimeSummary, totalBillableSummary, avvikList, materialList, financeEntries] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
       include: {
@@ -137,6 +158,42 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         timer: true,
         belopEksMva: true
       }
+    }),
+    db.timeEntry.aggregate({
+      where: {
+        projectId,
+        fakturerbar: true
+      },
+      _sum: {
+        belopEksMva: true
+      }
+    }),
+    db.avvik.findMany({
+      where: { projectId },
+      orderBy: [{ createdAt: "desc" }],
+      include: {
+        registrertAv: { select: { name: true } },
+        attachments: { select: { id: true } }
+      }
+    }),
+    db.materialItem.findMany({
+      where: { projectId },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      include: {
+        lagtTilAv: { select: { name: true } }
+      }
+    }),
+    db.projectFinanceEntry.findMany({
+      where: { projectId },
+      orderBy: [{ dato: "desc" }, { createdAt: "desc" }],
+      include: {
+        createdBy: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
     })
   ]);
 
@@ -161,13 +218,38 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
 
   const totalHoursToDate = totalTimeSummary._sum.timer ?? 0;
   const totalAmountToDate = totalTimeSummary._sum.belopEksMva ?? 0;
+  const totalBillableToDate = totalBillableSummary._sum.belopEksMva ?? 0;
+
+  const financeTotals = financeEntries.reduce(
+    (accumulator, entry) => {
+      if (entry.type === "UTGIFT") {
+        accumulator.expenses += entry.belopEksMva;
+      } else {
+        accumulator.surcharges += entry.belopEksMva;
+      }
+      return accumulator;
+    },
+    { expenses: 0, surcharges: 0 }
+  );
+
+  const baseRevenue =
+    project.billingType === "FASTPRIS"
+      ? (project.fastprisBelopEksMva ?? 0)
+      : totalBillableToDate;
+  const totalRevenue = baseRevenue + financeTotals.surcharges;
+  const totalCost = totalAmountToDate + financeTotals.expenses;
+  const resultEksMva = totalRevenue - totalCost;
+  const isPositiveResult = resultEksMva >= 0;
 
   const fastprisConsumption = project.billingType === "FASTPRIS" && project.fastprisBelopEksMva !== null
     ? {
-        fastpris: project.fastprisBelopEksMva,
-        consumed: totalAmountToDate,
-        remaining: project.fastprisBelopEksMva - totalAmountToDate,
-        percent: project.fastprisBelopEksMva > 0 ? (totalAmountToDate / project.fastprisBelopEksMva) * 100 : 0
+        fastpris: project.fastprisBelopEksMva + financeTotals.surcharges,
+        consumed: totalAmountToDate + financeTotals.expenses,
+        remaining: project.fastprisBelopEksMva + financeTotals.surcharges - (totalAmountToDate + financeTotals.expenses),
+        percent:
+          project.fastprisBelopEksMva + financeTotals.surcharges > 0
+            ? ((totalAmountToDate + financeTotals.expenses) / (project.fastprisBelopEksMva + financeTotals.surcharges)) * 100
+            : 0
       }
     : null;
 
@@ -189,6 +271,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
 
       {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {success ? <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{success}</p> : null}
+      {warning ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-700">{warning}</p> : null}
 
       <div className="brand-card p-3">
         <nav className="flex flex-wrap gap-2 text-sm" aria-label="Prosjektseksjoner">
@@ -201,8 +284,17 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
           <a href="#timer" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
             Timer
           </a>
+          <a href="#okonomi" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
+            Okonomi
+          </a>
+          <a href="#avvik" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
+            Avvik/HMS
+          </a>
+          <a href="#materialer" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
+            Materialer
+          </a>
           <a href="#dokumenter" className="rounded-lg px-3 py-2 hover:bg-brand-canvas">
-            Dokumenter/Bilder
+            Dokumenter
           </a>
         </nav>
       </div>
@@ -305,6 +397,11 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
             <p>Fastpris: {formatMoney(project.fastprisBelopEksMva)}</p>
             <p>Total timer (alle perioder): {formatHours(totalHoursToDate)} t</p>
             <p>Total verdi (alle perioder): {formatMoney(totalAmountToDate)}</p>
+            <p>Tillegg (inntekt): {formatMoney(financeTotals.surcharges)}</p>
+            <p>Ekstra utgifter: {formatMoney(financeTotals.expenses)}</p>
+            <p className={isPositiveResult ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>
+              Resultat eks mva: {formatMoney(resultEksMva)}
+            </p>
           </div>
 
           <div className="brand-card p-4">
@@ -511,7 +608,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
 
               {fastprisConsumption ? (
                 <div className="mt-3 rounded-lg border border-black/10 p-3 text-sm">
-                  <p className="font-semibold">Fastpris-forbruk (kostmodell: sum registrert belop)</p>
+                  <p className="font-semibold">Fastpris-forbruk (timer + utgifter mot fastpris + tillegg)</p>
                   <p className="mt-1">Forbruk hittil: {formatMoney(fastprisConsumption.consumed)} av {formatMoney(fastprisConsumption.fastpris)}</p>
                   <p>
                     {fastprisConsumption.remaining >= 0
@@ -565,9 +662,364 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         </div>
       </div>
 
-      <div id="dokumenter" className="brand-card p-4">
-        <h2 className="text-lg font-semibold">Dokumenter/Bilder</h2>
-        <p className="mt-2 text-sm text-brand-ink/75">Placeholder for dokumenter og bilder.</p>
+      <div id="okonomi" className="space-y-4">
+        <div className="brand-card p-4">
+          <h2 className="text-lg font-semibold">Okonomi</h2>
+          <p className="mt-2 text-sm text-brand-ink/75">
+            Legg inn utgifter (materialkjop, maskinleie, osv.) og tillegg for uforutsette jobber.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <form action={createProjectFinanceEntryAction} className="brand-card space-y-3 p-4">
+            <input type="hidden" name="projectId" value={project.id} />
+            <h3 className="text-lg font-semibold">Ny okonomipost</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm font-medium">
+                Type
+                <select name="type" className="brand-input mt-1" defaultValue="UTGIFT">
+                  {projectFinanceEntryTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium">
+                Dato
+                <input name="dato" type="date" defaultValue={todayValue} className="brand-input mt-1" required />
+              </label>
+            </div>
+            <label className="block text-sm font-medium">
+              Belop eks mva
+              <input name="belopEksMva" type="number" step="0.01" min="0.01" className="brand-input mt-1" required />
+            </label>
+            <label className="block text-sm font-medium">
+              Beskrivelse
+              <textarea
+                name="beskrivelse"
+                className="brand-input mt-1 min-h-20 resize-y"
+                required
+                minLength={2}
+                maxLength={400}
+                placeholder="Eks: Leie av lift 2 dager / Tillegg for ekstra gravejobb"
+              />
+            </label>
+            <button type="submit" className="brand-button w-full">
+              Lagre okonomipost
+            </button>
+          </form>
+
+          <div className="space-y-3">
+            <div className="brand-card p-4">
+              <h3 className="text-lg font-semibold">Lonnsomhet eks mva</h3>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                <div className="rounded-lg bg-brand-canvas p-3">
+                  <p className="text-xs uppercase text-brand-ink/70">Inntekt</p>
+                  <p className="mt-1 font-semibold">{formatMoney(totalRevenue)}</p>
+                  <p className="mt-1 text-xs text-brand-ink/70">
+                    {project.billingType === "FASTPRIS"
+                      ? "Fastprisgrunnlag + tillegg"
+                      : "Fakturerbare timer + tillegg"}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-brand-canvas p-3">
+                  <p className="text-xs uppercase text-brand-ink/70">Kostnad</p>
+                  <p className="mt-1 font-semibold">{formatMoney(totalCost)}</p>
+                  <p className="mt-1 text-xs text-brand-ink/70">Timer + registrerte utgifter</p>
+                </div>
+                <div className="rounded-lg bg-brand-canvas p-3">
+                  <p className="text-xs uppercase text-brand-ink/70">Tillegg</p>
+                  <p className="mt-1 font-semibold text-emerald-700">{formatMoney(financeTotals.surcharges)}</p>
+                </div>
+                <div className="rounded-lg bg-brand-canvas p-3">
+                  <p className="text-xs uppercase text-brand-ink/70">Ekstra utgifter</p>
+                  <p className="mt-1 font-semibold text-red-700">{formatMoney(financeTotals.expenses)}</p>
+                </div>
+              </div>
+              <p className={`mt-3 text-sm font-semibold ${isPositiveResult ? "text-emerald-700" : "text-red-700"}`}>
+                Resultat: {formatMoney(resultEksMva)} ({isPositiveResult ? "Pluss" : "Minus"})
+              </p>
+            </div>
+
+            <div className="brand-card p-4">
+              <h3 className="text-lg font-semibold">Registrerte okonomiposter</h3>
+              {financeEntries.length === 0 ? (
+                <p className="mt-2 text-sm text-brand-ink/75">Ingen utgifter eller tillegg registrert enna.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {financeEntries.map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-black/10 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium">{entry.beskrivelse}</p>
+                          <p className="text-xs text-brand-ink/70">
+                            {entry.dato.toLocaleDateString("nb-NO")} - registrert av {entry.createdBy.name}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${getProjectFinanceEntryTypeColor(entry.type)}`}>
+                            {getProjectFinanceEntryTypeLabel(entry.type)}
+                          </span>
+                          <p className={`mt-1 text-sm font-semibold ${entry.type === "TILLEGG" ? "text-emerald-700" : "text-red-700"}`}>
+                            {entry.type === "TILLEGG" ? "+" : "-"}
+                            {formatMoney(entry.belopEksMva)}
+                          </p>
+                        </div>
+                      </div>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-brand-ink/80">Rediger</summary>
+                        <form action={updateProjectFinanceEntryAction} className="mt-2 space-y-2">
+                          <input type="hidden" name="financeEntryId" value={entry.id} />
+                          <input type="hidden" name="projectId" value={project.id} />
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <label className="block text-xs font-medium">
+                              Type
+                              <select name="type" className="brand-input mt-1 text-xs" defaultValue={entry.type}>
+                                {projectFinanceEntryTypeOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block text-xs font-medium">
+                              Dato
+                              <input name="dato" type="date" className="brand-input mt-1 text-xs" defaultValue={formatDateInput(entry.dato)} required />
+                            </label>
+                            <label className="block text-xs font-medium">
+                              Belop eks mva
+                              <input
+                                name="belopEksMva"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                className="brand-input mt-1 text-xs"
+                                defaultValue={entry.belopEksMva}
+                                required
+                              />
+                            </label>
+                          </div>
+                          <label className="block text-xs font-medium">
+                            Beskrivelse
+                            <textarea
+                              name="beskrivelse"
+                              className="brand-input mt-1 min-h-16 resize-y text-xs"
+                              required
+                              minLength={2}
+                              maxLength={400}
+                              defaultValue={entry.beskrivelse}
+                            />
+                          </label>
+                          <button type="submit" className="rounded-lg bg-brand-canvas px-3 py-1.5 text-xs font-semibold hover:bg-brand-canvas/80">
+                            Lagre endringer
+                          </button>
+                        </form>
+                      </details>
+                      <form action={deleteProjectFinanceEntryAction} className="mt-2">
+                        <input type="hidden" name="financeEntryId" value={entry.id} />
+                        <input type="hidden" name="projectId" value={project.id} />
+                        <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                          Slett
+                        </button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="avvik" className="space-y-4">
+        <div className="brand-card p-4">
+          <h2 className="text-lg font-semibold">Avvik/HMS</h2>
+          <p className="mt-2 text-sm text-brand-ink/75">Registrer avvik, HMS-hendelser og observasjoner.</p>
+        </div>
+
+        <form action={createAvvikAction} className="brand-card space-y-3 p-4">
+          <input type="hidden" name="projectId" value={project.id} />
+          <h3 className="text-lg font-semibold">Nytt avvik</h3>
+          <label className="block text-sm font-medium">
+            Tittel
+            <input name="tittel" className="brand-input mt-1" required minLength={2} maxLength={200} />
+          </label>
+          <label className="block text-sm font-medium">
+            Beskrivelse
+            <textarea name="beskrivelse" className="brand-input mt-1 min-h-24 resize-y" required minLength={2} maxLength={4000} />
+          </label>
+          <label className="block text-sm font-medium">
+            Alvorlighetsgrad
+            <select name="alvorlighetsgrad" className="brand-input mt-1" required>
+              {avvikAlvorlighetsgradOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="brand-button w-full">
+            Registrer avvik
+          </button>
+        </form>
+
+        <div className="brand-card p-4">
+          <h3 className="text-lg font-semibold">Registrerte avvik</h3>
+          {avvikList.length === 0 ? (
+            <p className="mt-2 text-sm text-brand-ink/75">Ingen avvik registrert pa prosjektet.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {avvikList.map((avvik) => (
+                <Link
+                  key={avvik.id}
+                  href={`/prosjekter/${project.id}/avvik/${avvik.id}`}
+                  className="block rounded-xl border border-black/10 p-3 transition hover:border-brand-red/40"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-medium">{avvik.tittel}</p>
+                    <div className="flex gap-1.5">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getAvvikAlvorlighetsgradColor(avvik.alvorlighetsgrad)}`}>
+                        {getAvvikAlvorlighetsgradLabel(avvik.alvorlighetsgrad)}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getAvvikStatusColor(avvik.status)}`}>
+                        {getAvvikStatusLabel(avvik.status)}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-brand-ink/75">
+                    {avvik.registrertAv.name} - {avvik.createdAt.toLocaleDateString("nb-NO")}
+                    {avvik.attachments.length > 0 ? ` - ${avvik.attachments.length} bilde(r)` : ""}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div id="materialer" className="space-y-4">
+        <div className="brand-card p-4">
+          <h2 className="text-lg font-semibold">Materialer</h2>
+          <p className="mt-2 text-sm text-brand-ink/75">Materialliste og innkjopsstatus for prosjektet.</p>
+        </div>
+
+        <form action={createMaterialAction} className="brand-card space-y-3 p-4">
+          <input type="hidden" name="projectId" value={project.id} />
+          <h3 className="text-lg font-semibold">Legg til material</h3>
+          <label className="block text-sm font-medium">
+            Navn/beskrivelse
+            <input name="navn" className="brand-input mt-1" required minLength={1} maxLength={200} />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-medium">
+              Antall
+              <input name="antall" type="number" step="0.01" min="0.01" className="brand-input mt-1" required />
+            </label>
+            <label className="block text-sm font-medium">
+              Enhet
+              <input name="enhet" className="brand-input mt-1" required minLength={1} maxLength={50} placeholder="stk, m, m2, kg..." />
+            </label>
+          </div>
+          <label className="block text-sm font-medium">
+            Estimert pris eks mva (valgfritt)
+            <input name="estimertPris" type="number" step="0.01" min="0" className="brand-input mt-1" />
+          </label>
+          <label className="block text-sm font-medium">
+            Notat (valgfritt)
+            <textarea name="notat" className="brand-input mt-1 min-h-16 resize-y" maxLength={4000} />
+          </label>
+          <button type="submit" className="brand-button w-full">
+            Legg til material
+          </button>
+        </form>
+
+        <div className="brand-card p-4">
+          <h3 className="text-lg font-semibold">Materialliste</h3>
+          {materialList.length === 0 ? (
+            <p className="mt-2 text-sm text-brand-ink/75">Ingen materialer lagt til enna.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {materialList.map((item) => {
+                const next = nextMaterialStatus(item.status);
+                return (
+                  <div key={item.id} className="rounded-xl border border-black/10 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{item.navn}</p>
+                        <p className="text-sm text-brand-ink/75">
+                          {item.antall} {item.enhet}
+                          {item.estimertPris !== null ? ` - est. ${formatMoney(item.estimertPris)}` : ""}
+                        </p>
+                        {item.notat ? <p className="mt-1 text-xs text-brand-ink/70">{item.notat}</p> : null}
+                        <p className="mt-1 text-xs text-brand-ink/60">Lagt til av {item.lagtTilAv.name}</p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getMaterialStatusColor(item.status)}`}>
+                        {getMaterialStatusLabel(item.status)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {next ? (
+                        <form action={updateMaterialStatusAction}>
+                          <input type="hidden" name="materialId" value={item.id} />
+                          <input type="hidden" name="projectId" value={project.id} />
+                          <input type="hidden" name="status" value={next} />
+                          <button type="submit" className="rounded-lg bg-brand-canvas px-3 py-1.5 text-xs font-semibold hover:bg-brand-canvas/80">
+                            Merk som {materialStatusOptions.find((o) => o.value === next)?.label ?? next}
+                          </button>
+                        </form>
+                      ) : null}
+                      <form action={deleteMaterialAction}>
+                        <input type="hidden" name="materialId" value={item.id} />
+                        <input type="hidden" name="projectId" value={project.id} />
+                        <button type="submit" className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                          Slett
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                );
+              })}
+              {(() => {
+                const totalEstimert = materialList.reduce((sum, item) => sum + (item.estimertPris ?? 0), 0);
+                return totalEstimert > 0 ? (
+                  <div className="rounded-lg bg-brand-canvas p-3 text-sm">
+                    <p className="font-semibold">Total estimert materialkostnad: {formatMoney(totalEstimert)}</p>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div id="dokumenter" className="brand-card space-y-3 p-4">
+        <h2 className="text-lg font-semibold">Dokumenter</h2>
+        <p className="text-sm text-brand-ink/75">
+          Generer en komplett prosjektrapport med sjekklister, bilder, timer og avvik.
+        </p>
+        <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+          <div className="rounded-lg bg-brand-canvas p-3">
+            <p className="text-xs uppercase text-brand-ink/70">Sjekklister</p>
+            <p className="mt-1 font-semibold">{project.checklists.length}</p>
+          </div>
+          <div className="rounded-lg bg-brand-canvas p-3">
+            <p className="text-xs uppercase text-brand-ink/70">Avvik</p>
+            <p className="mt-1 font-semibold">{avvikList.length}</p>
+          </div>
+          <div className="rounded-lg bg-brand-canvas p-3">
+            <p className="text-xs uppercase text-brand-ink/70">Materialer</p>
+            <p className="mt-1 font-semibold">{materialList.length}</p>
+          </div>
+        </div>
+        <a
+          href={`/api/prosjekter/${project.id}/rapport`}
+          target="_blank"
+          rel="noreferrer"
+          className="brand-button inline-block px-4 py-2 text-sm"
+        >
+          Generer prosjektrapport
+        </a>
       </div>
     </section>
   );

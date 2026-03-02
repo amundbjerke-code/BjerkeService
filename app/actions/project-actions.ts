@@ -172,6 +172,25 @@ export async function updateProjectAction(formData: FormData): Promise<void> {
       metadata: { navn: updated.navn, status: updated.status, billingType: updated.billingType }
     });
 
+    if (parsedInput.data.status === ProjectStatus.FERDIG) {
+      const incompleteChecklists = await db.projectChecklist.findMany({
+        where: {
+          projectId: parsedId.data.projectId,
+          items: { some: { svar: null } }
+        },
+        select: { navn: true }
+      });
+
+      if (incompleteChecklists.length > 0) {
+        const names = incompleteChecklists.map((c) => c.navn).join(", ");
+        redirect(
+          `/prosjekter/${updated.id}?success=updated&warning=${encodeURIComponent(
+            `Uferdig(e) sjekkliste(r): ${names}. Prosjektet ble satt til Ferdig.`
+          )}`
+        );
+      }
+    }
+
     redirect(`/prosjekter/${updated.id}?success=updated`);
   } catch (error) {
     console.error(error);

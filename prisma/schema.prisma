@@ -29,10 +29,53 @@ enum ProjectBillingType {
   FASTPRIS
 }
 
+enum OfferType {
+  FASTPRIS
+  TIMEBASERT
+}
+
+enum OfferStatus {
+  UTKAST
+  SENDT
+  GODKJENT
+  AVVIST
+}
+
+enum OfferHistoryAction {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  CONVERTED_TO_PROJECT
+}
+
 enum ChecklistItemAnswer {
   JA
   NEI
   IKKE_RELEVANT
+}
+
+enum AvvikAlvorlighetsgrad {
+  LAV
+  MIDDELS
+  HOY
+  KRITISK
+}
+
+enum AvvikStatus {
+  APENT
+  UNDER_BEHANDLING
+  LUKKET
+}
+
+enum MaterialStatus {
+  TRENGS
+  BESTILT
+  MOTTATT
+}
+
+enum ProjectFinanceEntryType {
+  UTGIFT
+  TILLEGG
 }
 
 model User {
@@ -49,6 +92,13 @@ model User {
   createdProjectChecklists  ProjectChecklist[]   @relation("ChecklistCreatedBy")
   updatedProjectChecklistItems ProjectChecklistItem[] @relation("ChecklistItemUpdatedBy")
   timeEntries               TimeEntry[]
+  avvikRegistrert           Avvik[]              @relation("AvvikRegistrertAv")
+  avvikLukket               Avvik[]              @relation("AvvikLukketAv")
+  materialerLagtTil         MaterialItem[]       @relation("MaterialLagtTilAv")
+  createdOffers             Offer[]              @relation("OfferCreatedBy")
+  updatedOffers             Offer[]              @relation("OfferUpdatedBy")
+  offerHistoryEntries       OfferHistory[]       @relation("OfferHistoryChangedBy")
+  projectFinanceEntries     ProjectFinanceEntry[]
 }
 
 model Account {
@@ -116,6 +166,7 @@ model Customer {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   projects  Project[]
+  offers    Offer[]
 
   @@index([status])
   @@index([navn])
@@ -140,6 +191,10 @@ model Project {
   updatedAt            DateTime           @updatedAt
   checklists           ProjectChecklist[]
   timeEntries          TimeEntry[]
+  avvik                Avvik[]
+  materialer           MaterialItem[]
+  offer                Offer?                 @relation("OfferToProject")
+  financeEntries       ProjectFinanceEntry[]
 
   @@index([customerId])
   @@index([status])
@@ -234,4 +289,149 @@ model ChecklistItemAttachment {
   @@index([checklistItemId])
 }
 
+model Avvik {
+  id                 String                @id @default(cuid())
+  projectId          String
+  project            Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tittel             String
+  beskrivelse        String
+  alvorlighetsgrad   AvvikAlvorlighetsgrad
+  status             AvvikStatus           @default(APENT)
+  tiltak             String?
+  registrertAvId     String
+  registrertAv       User                  @relation("AvvikRegistrertAv", fields: [registrertAvId], references: [id], onDelete: Restrict)
+  lukketAvId         String?
+  lukketAv           User?                 @relation("AvvikLukketAv", fields: [lukketAvId], references: [id], onDelete: SetNull)
+  lukketDato         DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  attachments        AvvikAttachment[]
 
+  @@index([projectId])
+  @@index([status])
+  @@index([alvorlighetsgrad])
+  @@index([registrertAvId])
+  @@index([createdAt])
+}
+
+model AvvikAttachment {
+  id        String   @id @default(cuid())
+  avvikId   String
+  avvik     Avvik    @relation(fields: [avvikId], references: [id], onDelete: Cascade)
+  filUrl    String
+  filType   String
+  createdAt DateTime @default(now())
+
+  @@index([avvikId])
+}
+
+model MaterialItem {
+  id           String         @id @default(cuid())
+  projectId    String
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  navn         String
+  antall       Float
+  enhet        String
+  estimertPris Float?
+  status       MaterialStatus @default(TRENGS)
+  notat        String?
+  lagtTilAvId  String
+  lagtTilAv    User           @relation("MaterialLagtTilAv", fields: [lagtTilAvId], references: [id], onDelete: Restrict)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+  @@index([lagtTilAvId])
+}
+
+model Offer {
+  id                    String                   @id @default(cuid())
+  customerId            String
+  customer              Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  projectId             String?                  @unique
+  project               Project?                 @relation("OfferToProject", fields: [projectId], references: [id], onDelete: SetNull)
+  navn                  String
+  beskrivelse           String?
+  offerType             OfferType
+  status                OfferStatus              @default(UTKAST)
+  timeEstimateHours     Float
+  hourlyRateEksMva      Float
+  materialCostEksMva    Float                    @default(0)
+  markupPercent         Float                    @default(0)
+  riskBufferPercent     Float                    @default(0)
+  subtotalEksMva        Float
+  markupAmountEksMva    Float
+  riskAmountEksMva      Float
+  totalEksMva           Float
+  mvaPercent            Float                    @default(25)
+  totalInkMva           Float
+  createdById           String
+  createdBy             User                     @relation("OfferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById           String
+  updatedBy             User                     @relation("OfferUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  sentAt                DateTime?
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  convertedToProjectAt  DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  specificationItems    OfferSpecificationItem[]
+  history               OfferHistory[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([offerType])
+  @@index([createdById])
+  @@index([updatedById])
+  @@index([createdAt])
+}
+
+model OfferSpecificationItem {
+  id           String   @id @default(cuid())
+  offerId      String
+  offer        Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  tekst        String
+  rekkefolge   Int
+  belopEksMva  Float?
+  createdAt    DateTime @default(now())
+
+  @@index([offerId])
+  @@index([rekkefolge])
+}
+
+model OfferHistory {
+  id           String             @id @default(cuid())
+  offerId      String
+  offer        Offer              @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  changedById  String
+  changedBy    User               @relation("OfferHistoryChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  action       OfferHistoryAction
+  fromStatus   OfferStatus?
+  toStatus     OfferStatus?
+  note         String?
+  snapshot     Json?
+  createdAt    DateTime           @default(now())
+
+  @@index([offerId])
+  @@index([changedById])
+  @@index([createdAt])
+}
+
+model ProjectFinanceEntry {
+  id           String                @id @default(cuid())
+  projectId    String
+  project      Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type         ProjectFinanceEntryType
+  dato         DateTime
+  beskrivelse  String
+  belopEksMva  Float
+  createdById  String
+  createdBy    User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime              @default(now())
+
+  @@index([projectId])
+  @@index([type])
+  @@index([dato])
+  @@index([createdById])
+}
