@@ -16,6 +16,7 @@ const baseItems: NavItem[] = [
   { href: "/kunder", label: "Kunder", shortLabel: "Kunder" },
   { href: "/prosjekter", label: "Prosjekter", shortLabel: "Prosj." },
   { href: "/tilbud", label: "Tilbud", shortLabel: "Tilbud" },
+  { href: "/materialer", label: "Materialer", shortLabel: "Mat." },
   { href: "/sjekklister", label: "Sjekklister", shortLabel: "Sjekk" },
   { href: "/timer", label: "Timer", shortLabel: "Timer" },
   { href: "/rapport", label: "Rapport", shortLabel: "Rapport" }

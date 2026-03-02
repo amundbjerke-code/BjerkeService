@@ -78,6 +78,13 @@ enum ProjectFinanceEntryType {
   TILLEGG
 }
 
+enum PurchaseOrderStatus {
+  UTKAST
+  SENDT
+  MOTTATT
+  ANNULLERT
+}
+
 model User {
   id                        String               @id @default(cuid())
   name                      String
@@ -99,6 +106,8 @@ model User {
   updatedOffers             Offer[]              @relation("OfferUpdatedBy")
   offerHistoryEntries       OfferHistory[]       @relation("OfferHistoryChangedBy")
   projectFinanceEntries     ProjectFinanceEntry[]
+  projectMaterialConsumptions ProjectMaterialConsumption[]
+  purchaseOrdersCreated     PurchaseOrder[]      @relation("PurchaseOrderCreatedBy")
 }
 
 model Account {
@@ -195,11 +204,101 @@ model Project {
   materialer           MaterialItem[]
   offer                Offer?                 @relation("OfferToProject")
   financeEntries       ProjectFinanceEntry[]
+  materialConsumptions ProjectMaterialConsumption[]
 
   @@index([customerId])
   @@index([status])
   @@index([navn])
   @@index([billingType])
+}
+
+model Supplier {
+  id             String            @id @default(cuid())
+  navn           String
+  kontaktperson  String?
+  epost          String?
+  telefon        String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  materials      InventoryMaterial[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([navn])
+}
+
+model InventoryMaterial {
+  id                       String                      @id @default(cuid())
+  supplierId               String
+  supplier                 Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  navn                     String
+  enhet                    String
+  innkjopsprisEksMva       Float
+  standardPaslagPercent    Float                       @default(0)
+  lagerBeholdning          Float                       @default(0)
+  lavLagerGrense           Float                       @default(0)
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  consumptions             ProjectMaterialConsumption[]
+  purchaseOrderItems       PurchaseOrderItem[]
+
+  @@index([supplierId])
+  @@index([navn])
+  @@index([lagerBeholdning])
+}
+
+model ProjectMaterialConsumption {
+  id                         String            @id @default(cuid())
+  projectId                  String
+  project                    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  materialId                 String
+  material                   InventoryMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  dato                       DateTime
+  antall                     Float
+  enhet                      String
+  enhetsInnkjopsprisEksMva   Float
+  enhetsSalgsprisEksMva      Float
+  notat                      String?
+  createdById                String
+  createdBy                  User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt                  DateTime          @default(now())
+
+  @@index([projectId])
+  @@index([materialId])
+  @@index([dato])
+  @@index([createdById])
+}
+
+model PurchaseOrder {
+  id            String              @id @default(cuid())
+  supplierId    String
+  supplier      Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  status        PurchaseOrderStatus @default(UTKAST)
+  forventetDato DateTime?
+  notat         String?
+  createdById   String
+  createdBy     User                @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  items         PurchaseOrderItem[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model PurchaseOrderItem {
+  id                 String           @id @default(cuid())
+  purchaseOrderId    String
+  purchaseOrder      PurchaseOrder    @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  materialId         String
+  material           InventoryMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  antall             Float
+  enhetsprisEksMva   Float
+  createdAt          DateTime         @default(now())
+
+  @@index([purchaseOrderId])
+  @@index([materialId])
 }
 
 model TimeEntry {

@@ -6,6 +6,7 @@ import {
   createProjectChecklistFromScratchAction,
   createProjectChecklistFromTemplateAction
 } from "@/app/actions/checklist-actions";
+import { createProjectMaterialConsumptionAction } from "@/app/actions/material-inventory-actions";
 import { createMaterialAction, deleteMaterialAction, updateMaterialStatusAction } from "@/app/actions/material-actions";
 import { createProjectFinanceEntryAction, deleteProjectFinanceEntryAction, updateProjectFinanceEntryAction } from "@/app/actions/project-finance-actions";
 import { deleteProjectAction, updateProjectAction } from "@/app/actions/project-actions";
@@ -35,6 +36,7 @@ function getSuccessMessage(success: string): string | null {
   if (success === "avvik-created") return "Avvik ble registrert.";
   if (success === "avvik-deleted") return "Avvik ble slettet.";
   if (success === "material-created") return "Material ble lagt til.";
+  if (success === "material-consumption-created") return "Materialforbruk ble registrert og lager oppdatert.";
   if (success === "material-updated") return "Materialstatus ble oppdatert.";
   if (success === "material-deleted") return "Material ble slettet.";
   if (success === "finance-created") return "Okonomipost ble lagt til.";
@@ -84,7 +86,7 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
   const nextPeriod = shiftPeriod(activePeriod, 1);
   const todayValue = formatDateInput(new Date());
 
-  const [project, customers, templates, periodTimeEntries, totalTimeSummary, totalBillableSummary, avvikList, materialList, financeEntries] = await Promise.all([
+  const [project, customers, templates, periodTimeEntries, totalTimeSummary, totalBillableSummary, avvikList, materialList, inventoryMaterials, projectMaterialConsumptions, financeEntries] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
       include: {
@@ -183,6 +185,37 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         lagtTilAv: { select: { name: true } }
       }
     }),
+    db.inventoryMaterial.findMany({
+      orderBy: [{ navn: "asc" }],
+      include: {
+        supplier: {
+          select: {
+            navn: true
+          }
+        }
+      }
+    }),
+    db.projectMaterialConsumption.findMany({
+      where: { projectId },
+      orderBy: [{ dato: "desc" }, { createdAt: "desc" }],
+      include: {
+        material: {
+          select: {
+            navn: true,
+            supplier: {
+              select: {
+                navn: true
+              }
+            }
+          }
+        },
+        createdBy: {
+          select: {
+            name: true
+          }
+        }
+      }
+    }),
     db.projectFinanceEntry.findMany({
       where: { projectId },
       orderBy: [{ dato: "desc" }, { createdAt: "desc" }],
@@ -231,6 +264,19 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
     },
     { expenses: 0, surcharges: 0 }
   );
+
+  const materialConsumptionSummary = projectMaterialConsumptions.reduce(
+    (accumulator, entry) => {
+      const cost = entry.antall * entry.enhetsInnkjopsprisEksMva;
+      const revenue = entry.antall * entry.enhetsSalgsprisEksMva;
+      accumulator.cost += cost;
+      accumulator.revenue += revenue;
+      return accumulator;
+    },
+    { cost: 0, revenue: 0 }
+  );
+  const materialConsumptionMargin = materialConsumptionSummary.revenue - materialConsumptionSummary.cost;
+  const lowStockCount = inventoryMaterials.filter((material) => material.lavLagerGrense > 0 && material.lagerBeholdning <= material.lavLagerGrense).length;
 
   const baseRevenue =
     project.billingType === "FASTPRIS"
@@ -902,6 +948,117 @@ export default async function ProjectDetailPage({ params, searchParams }: Props)
         <div className="brand-card p-4">
           <h2 className="text-lg font-semibold">Materialer</h2>
           <p className="mt-2 text-sm text-brand-ink/75">Materialliste og innkjopsstatus for prosjektet.</p>
+        </div>
+
+        <div className="brand-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Materialforbruk fra lager</h3>
+              <p className="mt-1 text-sm text-brand-ink/75">
+                Registrer uttak fra materialregisteret. Lager trekkes automatisk, og kostnaden bokfores som utgift pa prosjektet.
+              </p>
+            </div>
+            <a href="/materialer" className="rounded-lg bg-brand-canvas px-3 py-2 text-xs font-semibold hover:bg-brand-canvas/80">
+              Apne materialregister
+            </a>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+            <div className="rounded-lg bg-brand-canvas p-3">
+              <p className="text-xs uppercase text-brand-ink/70">Forbrukslinjer</p>
+              <p className="mt-1 font-semibold">{projectMaterialConsumptions.length}</p>
+            </div>
+            <div className="rounded-lg bg-brand-canvas p-3">
+              <p className="text-xs uppercase text-brand-ink/70">Kost eks mva</p>
+              <p className="mt-1 font-semibold text-red-700">{formatMoney(materialConsumptionSummary.cost)}</p>
+            </div>
+            <div className="rounded-lg bg-brand-canvas p-3">
+              <p className="text-xs uppercase text-brand-ink/70">Margin (est.)</p>
+              <p className={`mt-1 font-semibold ${materialConsumptionMargin >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                {formatMoney(materialConsumptionMargin)}
+              </p>
+            </div>
+          </div>
+          {lowStockCount > 0 ? (
+            <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+              {lowStockCount} materialer har lav lagerbeholdning. Vurder innkjopsordre i materialregisteret.
+            </p>
+          ) : null}
+        </div>
+
+        <form action={createProjectMaterialConsumptionAction} className="brand-card space-y-3 p-4">
+          <input type="hidden" name="projectId" value={project.id} />
+          <h3 className="text-lg font-semibold">Registrer lageruttak</h3>
+          <label className="block text-sm font-medium">
+            Materiale
+            <select name="materialId" className="brand-input mt-1" required defaultValue="">
+              <option value="" disabled>
+                Velg materiale
+              </option>
+              {inventoryMaterials.map((material) => (
+                <option key={material.id} value={material.id}>
+                  {material.navn} ({material.supplier.navn}) - lager {material.lagerBeholdning.toLocaleString("nb-NO", { maximumFractionDigits: 2 })} {material.enhet}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium">
+              Antall
+              <input name="antall" type="number" step="0.01" min="0.01" className="brand-input mt-1" required />
+            </label>
+            <label className="block text-sm font-medium">
+              Dato
+              <input name="dato" type="date" defaultValue={todayValue} className="brand-input mt-1" required />
+            </label>
+          </div>
+          <label className="block text-sm font-medium">
+            Notat (valgfritt)
+            <textarea name="notat" className="brand-input mt-1 min-h-16 resize-y" maxLength={1000} placeholder="Eks: Uttak til teknisk rom / ekstra kurs" />
+          </label>
+          <button type="submit" className="brand-button w-full" disabled={inventoryMaterials.length === 0}>
+            Registrer forbruk
+          </button>
+          {inventoryMaterials.length === 0 ? (
+            <p className="text-xs text-brand-ink/70">Ingen materialer i registeret. Opprett materiale pa /materialer.</p>
+          ) : null}
+        </form>
+
+        <div className="brand-card p-4">
+          <h3 className="text-lg font-semibold">Forbruk pa dette prosjektet</h3>
+          {projectMaterialConsumptions.length === 0 ? (
+            <p className="mt-2 text-sm text-brand-ink/75">Ingen lageruttak registrert pa prosjektet enna.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {projectMaterialConsumptions.map((entry) => {
+                const lineCost = entry.antall * entry.enhetsInnkjopsprisEksMva;
+                const lineRevenue = entry.antall * entry.enhetsSalgsprisEksMva;
+                const lineMargin = lineRevenue - lineCost;
+                return (
+                  <div key={entry.id} className="rounded-xl border border-black/10 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{entry.material.navn}</p>
+                        <p className="text-xs text-brand-ink/70">
+                          {entry.dato.toLocaleDateString("nb-NO")} - {entry.createdBy.name} - {entry.material.supplier.navn}
+                        </p>
+                        <p className="text-sm text-brand-ink/80">
+                          {entry.antall.toLocaleString("nb-NO", { maximumFractionDigits: 2 })} {entry.enhet} x {formatMoney(entry.enhetsInnkjopsprisEksMva)}
+                        </p>
+                        {entry.notat ? <p className="mt-1 text-xs text-brand-ink/75">{entry.notat}</p> : null}
+                      </div>
+                      <div className="text-right text-xs">
+                        <p>Kost: <span className="font-semibold text-red-700">{formatMoney(lineCost)}</span></p>
+                        <p>Est. salg: <span className="font-semibold">{formatMoney(lineRevenue)}</span></p>
+                        <p className={lineMargin >= 0 ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>
+                          Margin: {formatMoney(lineMargin)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <form action={createMaterialAction} className="brand-card space-y-3 p-4">

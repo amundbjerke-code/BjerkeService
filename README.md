@@ -2,7 +2,7 @@
 
 Mobil-first prosjektstyring for Bjerke Service.
 
-## Bolge 1-6 status
+## Bolge 1-8 status
 
 Ferdig i denne leveransen:
 
@@ -47,6 +47,12 @@ Ferdig i denne leveransen:
   - Rediger/slett eksisterende okonomiposter direkte pa prosjektsiden
   - Lonnsomhet vises pa prosjektsiden med resultat eks mva (pluss/minus)
   - Stottes for bade `FASTPRIS` og `TIME`-prosjekter
+- Material- og lagerstyring (Bolge 8):
+  - Eget materialregister med leverandor, innkjopspris, standard paslag og lagerbeholdning
+  - Lavlager-varsel per materiale (`lavLagerGrense`)
+  - Materialforbruk fra lager per prosjekt (med automatisk lager-trekk)
+  - Innkjopsordre genereres automatisk fra lavlager-linjer
+  - Innkjopsordre kan markeres som mottatt for automatisk lager-okning
 
 ## Tilgangsvalg
 
@@ -76,7 +82,7 @@ Datamodellen er forberedt for senere internkost-modell:
 - `Prisma ORM`
 - `Zod`
 
-## Datamodell (Bolge 1-6)
+## Datamodell (Bolge 1-8)
 
 Se [prisma/schema.prisma](./prisma/schema.prisma).
 
@@ -97,6 +103,11 @@ Kjernetabeller:
 - `OfferSpecificationItem`
 - `OfferHistory`
 - `ProjectFinanceEntry`
+- `Supplier`
+- `InventoryMaterial`
+- `ProjectMaterialConsumption`
+- `PurchaseOrder`
+- `PurchaseOrderItem`
 
 ## API-endepunkter
 
